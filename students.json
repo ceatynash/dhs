@@ -1,0 +1,15 @@
+[
+  {
+    "id": 1,
+    "schoolId": "DHS-2026-001",
+    "name": "Tinashe Moyo",
+    "class": "Form 4",
+    "parentPhone": "+263771111111",
+    "parentEmail": "moyo.p@gmail.com",
+    "marks": {
+      "Mathematics": 84,
+      "English Literature": 79,
+      "History": 91
+    }
+  }
+]

@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DHS Results Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
+
+    <div id="auth-card" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl mt-8">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-black text-amber-500 tracking-wider">DHS RESULTS DASHBOARD</h1>
+            <p class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1">Daramombe High School Real-time Portal</p>
+        </div>
+
+        <form id="login-form" class="space-y-4">
+            <div>
+                <label class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Clearance Profile Group</label>
+                <select id="auth-role" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-slate-200">
+                    <option value="Parent">Parent / Guardian Channel</option>
+                    <option value="Teacher">Faculty Teacher Terminal</option>
+                    <option value="Head/Deputy">Headmaster / Deputy Administration</option>
+                    <option value="DOSA">DOSA Executive / Alumni Sponsor</option>
+                    <option value="Developer">Core System Developer</option>
+                </select>
+            </div>
+
+            <div id="dosa-name-wrapper" class="hidden">
+                <label class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Registered Association Name</label>
+                <input type="text" id="auth-dosa-name" placeholder="e.g., Daramombe Old Students Association (DOSA)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-slate-100">
+            </div>
+
+            <div>
+                <label class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Account Mail Handle</label>
+                <input type="email" id="auth-email" placeholder="identity@domain.com" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-slate-100">
+            </div>
+
+            <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 font-bold text-slate-950 py-2 rounded-lg transition text-sm uppercase tracking-wider">
+                Request Clearance OTP
+            </button>
+        </form>
+
+        <form id="otp-form" class="hidden space-y-4">
+            <p class="text-xs text-slate-400 text-center">Enter the 6-digit security verification code dispatched to your account.</p>
+            <div>
+                <input type="text" id="otp-code" placeholder="000000" maxlength="6" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-3 text-center text-xl font-mono font-bold tracking-widest focus:outline-none focus:border-amber-500 text-slate-100">
+            </div>
+            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold text-slate-950 py-2 rounded-lg transition text-sm uppercase tracking-wider">
+                Verify System Clearance
+            </button>
+        </form>
+    </div>
+
+    <div id="main-interface" class="hidden w-full max-w-7xl space-y-6 mt-4">
+        
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900 border border-slate-800 rounded-xl p-4 gap-4 shadow-xl">
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <h2 class="text-lg font-black tracking-wide uppercase text-slate-200">DHS LINK TERMINAL</h2>
+                </div>
+                <p class="text-xs text-slate-400 font-mono">NODE REFERENCE IDENTIFICATION TOKEN: <span id="session-identity-tag" class="text-amber-500">GUEST</span></p>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-right">
+                    <div class="text-[9px] uppercase font-bold text-slate-500">Active Identity Role</div>
+                    <div id="session-role-tag" class="text-xs font-mono font-bold text-emerald-400">Loading...</div>
+                </div>
+                <button onclick="window.location.reload()" class="bg-rose-950 hover:bg-rose-900 border border-rose-800 font-bold text-xs px-3 py-2 rounded-lg transition uppercase tracking-wider text-rose-200">
+                    Kill Connection
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <div class="lg:col-span-2 space-y-6">
+                
+                <div id="panel-parent" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+                    <h3 class="text-sm font-black uppercase text-amber-500 border-b border-slate-800 pb-2 tracking-wider">Parent Academic Grade Book Report</h3>
+                    <div id="parent-report-card-render" class="space-y-4"></div>
+                </div>
+
+                <div id="panel-staff" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <h3 class="text-sm font-black uppercase text-amber-500 tracking-wider">Student Academic Mark Matrix</h3>
+                        <p id="teacher-subject-view" class="text-xs font-mono text-slate-400"></p>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs font-mono">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-slate-400">
+                                    <th class="p-2">Student Name</th>
+                                    <th class="p-2">School ID</th>
+                                    <th class="p-2">Class Level</th>
+                                    <th class="p-2 text-center">Academic Report Mark Modifiers</th>
+                                </tr>
+                            </thead>
+                            <tbody id="student-matrix-rows" class="divide-y divide-slate-800/50"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="panel-developer" class="hidden space-y-6">
+                    
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+                        <h3 class="text-sm font-black uppercase text-blue-400 border-b border-slate-800 pb-2 tracking-wider">System Configuration Injection Controls</h3>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <form id="dev-add-student-form" class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
+                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Inject Student Matrix Profile</div>
+                                <input type="text" id="dev-stud-name" placeholder="Full Student Name" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="text" id="dev-stud-id" placeholder="School ID (DHS-2026-XXXX)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="text" id="dev-stud-class" placeholder="Class (e.g., Form 6)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="text" id="dev-stud-phone" placeholder="Parent Contact Number" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="email" id="dev-stud-email" placeholder="Parent Verification Mail Handle" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 font-bold text-slate-950 py-1 rounded text-[11px] uppercase">Commit Student Node</button>
+                            </form>
+
+                            <form id="dev-add-staff-form" class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
+                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Inject Faculty Staff Node</div>
+                                <input type="text" id="dev-staff-name" placeholder="Faculty Instructor Name" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="email" id="dev-staff-email" placeholder="Faculty Email Key Handle" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <select id="dev-staff-role" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300">
+                                    <option value="Teacher">Teacher Terminal</option>
+                                    <option value="Head/Deputy">Head/Deputy Administration</option>
+                                </select>
+                                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 font-bold text-slate-950 py-1 rounded text-[11px] uppercase">Commit Faculty Node</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+                        <h3 class="text-sm font-black uppercase text-rose-400 border-b border-slate-800 pb-2 tracking-wider">Active System Record Deletion & Purge Tables</h3>
+                        
+                        <div class="space-y-4">
+                            <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Student Inventory Records</div>
+                                <div class="max-h-40 overflow-y-auto border border-slate-800 rounded">
+                                    <table class="w-full text-left text-[11px] font-mono">
+                                        <tbody id="dev-purge-student-rows" class="divide-y divide-slate-800"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Faculty Staff Records</div>
+                                <div class="max-h-40 overflow-y-auto border border-slate-800 rounded">
+                                    <table class="w-full text-left text-[11px] font-mono">
+                                        <tbody id="dev-purge-staff-rows" class="divide-y divide-slate-800"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+                        <h3 class="text-sm font-black uppercase text-emerald-400 border-b border-slate-800 pb-2 tracking-wider">Live Network Monitoring Tracker Terminal (DOSA)</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs font-mono">
+                                <thead>
+                                    <tr class="text-slate-500 border-b border-slate-800 uppercase text-[9px] font-bold">
+                                        <th class="p-2">Alumni Component Entity</th>
+                                        <th class="p-2">Mail Handle ID</th>
+                                        <th class="p-2">Socket Pipe Reference</th>
+                                        <th class="p-2 text-right">Disconnect Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dev-dosa-tracker-rows" class="divide-y divide-slate-800/60"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="space-y-6">
+                
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-xl space-y-4">
+                    <h3 class="text-xs font-black uppercase text-amber-500 tracking-widest border-b border-slate-800 pb-2">Global Live Communications Channel</h3>
+                    
+                    <form id="broadcast-input-form" class="space-y-2">
+                        <textarea id="broadcast-message-field" rows="3" placeholder="Compose broad system transmission packet payload..." required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs font-mono text-slate-100 focus:outline-none focus:border-amber-500 resize-none"></textarea>
+                        <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold font-mono text-xs py-1.5 rounded-lg uppercase tracking-wider transition">Emit Channel Frame</button>
+                    </form>
+
+                    <div id="bulletin-timeline" class="space-y-2.5 max-h-[460px] overflow-y-auto pr-1"></div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <div id="marks-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 w-full max-w-sm space-y-4 shadow-2xl">
+            <div>
+                <h4 id="modal-student-name" class="font-black text-slate-100 text-base uppercase">Student Progress Modification</h4>
+                <p id="modal-student-id" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mt-0.5">DHS RECORD FRAME</p>
+            </div>
+
+            <form id="modal-marks-form" class="space-y-3"></form>
+
+            <div class="flex gap-2 font-mono text-xs pt-2">
+                <button type="button" onclick="closeMarksEditingModal()" class="flex-1 bg-slate-950 border border-slate-800 py-2 rounded-lg font-bold text-slate-400 hover:bg-slate-800 transition">Cancel</button>
+                <button type="submit" form="modal-marks-form" class="flex-1 bg-emerald-600 py-2 rounded-lg font-bold text-slate-950 hover:bg-emerald-500 transition">Commit Marks</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        
+        let currentSessionEmail = '';
+        let currentSessionRole = '';
+        let currentSessionDosaName = '';
+        
+        let activeSelectedEditingStudentId = null;
+
+        // Watch dropdown choice to show / hide specific field frameworks
+        document.getElementById('auth-role').addEventListener('change', (e) => {
+            const dosaWrapper = document.getElementById('dosa-name-wrapper');
+            if (e.target.value === 'DOSA') {
+                dosaWrapper.classList.remove('hidden');
+                document.getElementById('auth-dosa-name').setAttribute('required', 'true');
+            } else {
+                dosaWrapper.classList.add('hidden');
+                document.getElementById('auth-dosa-name').removeAttribute('required');
+            }
+        });
+
+        // Form Phase 1 Handler: Request OTP code
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const role = document.getElementById('auth-role').value;
+            const email = document.getElementById('auth-email').value;
+            const dosaName = document.getElementById('auth-dosa-name').value;
+
+            try {
+                const res = await fetch('/api/auth/request-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, role, dosaName })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    currentSessionEmail = email;
+                    currentSessionRole = role;
+                    currentSessionDosaName = dosaName;
+                    
+                    document.getElementById('login-form').classList.add('hidden');
+                    document.getElementById('otp-form').classList.remove('hidden');
+                } else {
+                    alert(data.message || "Security Handshake Dropped.");
+                }
+            } catch (err) {
+                alert("Communication failure initializing security gateway.");
+            }
+        });
+
+        // Form Phase 2 Handler: Verify OTP code
+        document.getElementById('otp-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const code = document.getElementById('otp-code').value;
+
+            try {
+                const res = await fetch('/api/auth/verify-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: currentSessionEmail, code })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    initializeRuntimeDashboardInterface();
+                } else {
+                    alert(data.message || "Invalid OTP code token verification.");
+                }
+            } catch (err) {
+                alert("Verification payload routing channel execution failure.");
+            }
+        });
+
+        function initializeRuntimeDashboardInterface() {
+            document.getElementById('auth-card').classList.add('hidden');
+            document.getElementById('main-interface').classList.remove('hidden');
+
+            document.getElementById('session-identity-tag').innerText = currentSessionEmail.toUpperCase();
+            document.getElementById('session-role-tag').innerText = currentSessionRole.toUpperCase();
+
+            // Set role visibility rules panels
+            if (currentSessionRole === 'Parent') {
+                document.getElementById('panel-parent').classList.remove('hidden');
+            } else if (currentSessionRole === 'Teacher' || currentSessionRole === 'Head/Deputy') {
+                document.getElementById('panel-staff').classList.remove('hidden');
+                document.getElementById('teacher-subject-view').innerText = `FACULTY: ${currentSessionRole.toUpperCase()}`;
+            } else if (currentSessionRole === 'Developer') {
+                document.getElementById('panel-developer').classList.remove('hidden');
+                document.getElementById('panel-staff').classList.remove('hidden'); // Also see metrics
+            } else if (currentSessionRole === 'DOSA') {
+                // Register tracking socket stream hook
+                socket.emit('register_dosa_session', { email: currentSessionEmail, dosaName: currentSessionDosaName });
+                document.getElementById('panel-parent').classList.remove('hidden'); // Reuses parent view layout structures for grade reviews
+            }
+
+            // Sync Initial Data Feeds from REST Channels
+            syncDatabaseFeeds();
+        }
+
+        async function syncDatabaseFeeds() {
+            // Read Broadcast Messages Timeline Buffer
+            const msgRes = await fetch('/api/messages');
+            const messages = await msgRes.json();
+            populateBulletinTimelineFeed(messages);
+
+            // Read Base Core Student List Matrix Records
+            const studRes = await fetch('/api/students');
+            const students = await studRes.json();
+            renderDashboardStudentDataLayers(students);
+
+            // Read Staff Lists if Administration / Dev Profiles are Connected
+            if (currentSessionRole === 'Developer') {
+                const staffRes = await fetch('/api/staff');
+                const staff = await staffRes.json();
+                renderDeveloperPurgeStaffTable(staff);
+
+                const dosaRes = await fetch('/api/developer/tracked-dosa');
+                const dosaTracks = await dosaRes.json();
+                renderDeveloperDosaTrackerDeck(dosaTracks);
+            }
+        }
+
+        function populateBulletinTimelineFeed(list) {
+            const wrapper = document.getElementById('bulletin-timeline');
+            wrapper.innerHTML = list.map(m => {
+                let stylizedText = m.text;
+                stylizedText = stylizedText.replace(/@everyone/g, '<span class="text-amber-400 font-bold bg-amber-950/30 px-1 rounded">@everyone</span>');
+                stylizedText = stylizedText.replace(/@teachers/g, '<span class="text-indigo-400 font-bold bg-indigo-950/30 px-1 rounded">@teachers</span>');
+                stylizedText = stylizedText.replace(/@admin/g, '<span class="text-purple-400 font-bold bg-purple-950/30 px-1 rounded">@admin</span>');
+                stylizedText = stylizedText.replace(/@developer/g, '<span class="text-blue-400 font-bold bg-blue-950/30 px-1 rounded">@developer</span>');
+
+                return `
+                    <div class="p-2.5 bg-slate-950 rounded border-l-2 border-amber-500 space-y-1">
+                        <div class="flex justify-between text-[9px] uppercase font-bold text-slate-500">
+                            <span>${m.sender}</span><span>${m.date}</span>
+                        </div>
+                        <p class="text-slate-300 text-xs font-sans leading-relaxed break-words">${stylizedText}</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderDashboardStudentDataLayers(students) {
+            // Render view matrix for Staff / Faculty editing grids
+            const matrixContainer = document.getElementById('student-matrix-rows');
+            matrixContainer.innerHTML = students.map(s => `
+                <tr class="hover:bg-slate-900/40 transition">
+                    <td class="p-2 font-bold text-slate-200">${s.name}</td>
+                    <td class="p-2 text-slate-400">${s.schoolId}</td>
+                    <td class="p-2 text-slate-500">${s.class}</td>
+                    <td class="p-2 text-center">
+                        <button onclick="openMarksEditingModal(${JSON.stringify(s).replace(/"/g, '&quot;')})" class="bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[10px] uppercase font-bold px-2 py-1 rounded transition text-amber-500">
+                            Edit Progress
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Render Parents / DOSA View Reports
+            if (currentSessionRole === 'Parent' || currentSessionRole === 'DOSA') {
+                const parentContainer = document.getElementById('parent-report-card-render');
+                
+                // If checking Parent context: limit payload visibility mapping strictly to matching child accounts
+                const targets = (currentSessionRole === 'Parent') 
+                    ? students.filter(s => s.parentEmail.toLowerCase() === currentSessionEmail.toLowerCase().trim())
+                    : students; // DOSA can review all matching files across records arrays
+
+                if (targets.length === 0) {
+                    parentContainer.innerHTML = `<div class="text-xs text-rose-400 font-mono italic">No registered student profile matrix aligned with this security handle identity index.</div>`;
+                    return;
+                }
+
+                parentContainer.innerHTML = targets.map(t => `
+                    <div class="bg-slate-950 p-4 border border-slate-800 rounded-lg space-y-3">
+                        <div class="flex justify-between items-start border-b border-slate-800 pb-2">
+                            <div>
+                                <h4 class="text-sm font-black text-slate-100 font-mono">${t.name}</h4>
+                                <p class="text-[10px] text-slate-500 font-mono">${t.schoolId} • ${t.class}</p>
+                            </div>
+                            <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-950/40 border border-amber-800 text-amber-400 font-mono">Official DHS Script Record</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            ${Object.entries(t.marks).map(([subj, val]) => `
+                                <div class="bg-slate-900 border border-slate-800 p-2 rounded text-center">
+                                    <div class="text-[10px] text-slate-400 truncate">${subj}</div>
+                                    <div class="text-base font-black ${val >= 50 ? 'text-emerald-400' : 'text-rose-400'} font-mono mt-0.5">${val}%</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // Render Developer Operations View lists
+            if (currentSessionRole === 'Developer') {
+                const purgeStudentContainer = document.getElementById('dev-purge-student-rows');
+                purgeStudentContainer.innerHTML = students.map(s => `
+                    <tr class="hover:bg-slate-900">
+                        <td class="p-1.5 font-bold text-slate-300">${s.name} (${s.schoolId})</td>
+                        <td class="p-1.5 text-right">
+                            <button onclick="socket.emit('developer_remove_student', ${s.id})" class="text-[9px] uppercase bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 px-1.5 py-0.5 rounded transition font-bold">Purge</button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        function renderDeveloperPurgeStaffTable(staff) {
+            const container = document.getElementById('dev-purge-staff-rows');
+            container.innerHTML = staff.map(f => `
+                <tr class="hover:bg-slate-900">
+                    <td class="p-1.5 font-bold text-slate-300">${f.name} [${f.role}]</td>
+                    <td class="p-1.5 text-right">
+                        <button onclick="socket.emit('developer_remove_staff', ${f.id})" class="text-[9px] uppercase bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800 px-1.5 py-0.5 rounded transition font-bold">Revoke</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderDeveloperDosaTrackerDeck(dosaTracks) {
+            const container = document.getElementById('dev-dosa-tracker-rows');
+            if (dosaTracks.length === 0) {
+                container.innerHTML = `<tr><td colspan="4" class="p-3 text-center text-slate-500 text-xs italic">No active DOSA monitoring terminal sockets detected on localized channels.</td></tr>`;
+                return;
+            }
+            container.innerHTML = dosaTracks.map(d => `
+                <tr class="hover:bg-slate-900/50 transition">
+                    <td class="p-2 font-bold text-slate-200">${d.dosaName}</td>
+                    <td class="p-2 text-slate-400">${d.email}</td>
+                    <td class="p-2 text-amber-500 text-[10px] font-mono">${d.socketId}</td>
+                    <td class="p-2 text-right">
+                        <button onclick="socket.emit('developer_disconnect_dosa', '${d.socketId}')" class="text-[9px] uppercase font-bold bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-400 px-2 py-0.5 rounded transition">Drop Socket</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Live Chat Bulletin Broadcaster Dispatcher Submit Form
+        document.getElementById('broadcast-input-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const text = document.getElementById('broadcast-message-field').value;
+            const sender = (currentSessionRole === 'Developer') ? "SYSTEM CORE DEVELOPER" : `${currentSessionRole.toUpperCase()} PANEL (${currentSessionEmail})`;
+            
+            socket.emit('submit_broadcast', { sender, role: currentSessionRole, text });
+            document.getElementById('broadcast-message-field').value = '';
+        });
+
+        // Interactive Marks Revision Modal Utilities
+        function openMarksEditingModal(student) {
+            activeSelectedEditingStudentId = student.id;
+            document.getElementById('modal-student-name').innerText = student.name;
+            document.getElementById('modal-student-id').innerText = student.schoolId;
+
+            const form = document.getElementById('modal-marks-form');
+            form.innerHTML = Object.entries(student.marks).map(([subject, markValue]) => `
+                <div>
+                    <label class="block text-[10px] uppercase font-bold text-slate-400 font-mono mb-1">${subject}</label>
+                    <input type="number" name="${subject}" value="${markValue}" min="0" max="100" required class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-emerald-400 font-mono font-bold focus:outline-none focus:border-amber-500">
+                </div>
+            `).join('');
+
+            document.getElementById('marks-modal').classList.remove('hidden');
+        }
+
+        function closeMarksEditingModal() {
+            document.getElementById('marks-modal').classList.add('hidden');
+            activeSelectedEditingStudentId = null;
+        }
+
+        document.getElementById('modal-marks-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const updatedMarks = {};
+            
+            formData.forEach((value, key) => {
+                updatedMarks[key] = parseInt(value);
+            });
+
+            socket.emit('update_student_marks', { id: activeSelectedEditingStudentId, marks: updatedMarks });
+            closeMarksEditingModal();
+        });
+
+        // Developer POST Forms Injections
+        document.getElementById('dev-add-student-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const body = {
+                name: document.getElementById('dev-stud-name').value,
+                schoolId: document.getElementById('dev-stud-id').value,
+                formClass: document.getElementById('dev-stud-class').value,
+                parentPhone: document.getElementById('dev-stud-phone').value,
+                parentEmail: document.getElementById('dev-stud-email').value
+            };
+            const res = await fetch('/api/developer/add-student', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.success) {
+                e.target.reset();
+                syncDatabaseFeeds();
+            } else {
+                alert(data.message);
+            }
+        });
+
+        document.getElementById('dev-add-staff-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const body = {
+                name: document.getElementById('dev-staff-name').value,
+                email: document.getElementById('dev-staff-email').value,
+                role: document.getElementById('dev-staff-role').value
+            };
+            const res = await fetch('/api/developer/add-staff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.success) {
+                e.target.reset();
+                syncDatabaseFeeds();
+            } else {
+                alert(data.message);
+            }
+        });
+
+        // Realtime Network Event Listener Pipeline Blocks
+        socket.on('broadcast_update', (messages) => populateBulletinTimelineFeed(messages));
+        socket.on('ledger_sync_update', (students) => renderDashboardStudentDataLayers(students));
+        socket.on('staff_sync_update', (staff) => renderDeveloperPurgeStaffTable(staff));
+        socket.on('dosa_tracker_sync', (tracks) => {
+            if (currentSessionRole === 'Developer') renderDeveloperDosaTrackerDeck(tracks);
+        });
+        
+        socket.on('security_alert', (payload) => alert(payload.message));
+
+        socket.on('forced_disconnect_target', (payload) => {
+            if (payload.type === 'Student' && currentSessionRole === 'Parent') {
+                alert("Core System Notice: Your tracking nodes are being recalculated by administrative instructions.");
+                window.location.reload();
+            }
+            if (payload.type === 'Staff' && currentSessionEmail.toLowerCase().trim() === payload.targetEmail.toLowerCase().trim()) {
+                alert("Core System Notice: Your operational clearance privileges have been modified or revoked.");
+                window.location.reload();
+            }
+        });
+
+        socket.on('forced_dosa_kick', () => {
+            alert("Security Handshake Dropped: Live tracking stream disconnected by primary developer command matrix.");
+            window.location.reload();
+        });
+    </script>
+</body>
+</html>
