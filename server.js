@@ -1,5 +1,6 @@
 const express = require('express');
 const { Server } = require('socket.io');
+const crypto = require('crypto');
 const http = require('http');
 const nodemailer = require('nodemailer');
 const path = require('path');
@@ -9,10 +10,10 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*" }
+    cors: { origin: process.env.ALLOWED_ORIGIN || true }
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '32kb' }));
 
 // Serve static assets out of the root or a public folder
 app.use(express.static(__dirname));
@@ -20,9 +21,33 @@ app.use(express.static(__dirname));
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'students.json');
 const STAFF_FILE = path.join(__dirname, 'staff.json');
+const DOSA_FILE = path.join(__dirname, 'dosa_members.json');
+const SESSION_SECRET = process.env.SESSION_SECRET || '';
+const sessions = new Map();
+
+function createSession(email, role, dosaName) {
+    const token = crypto.randomBytes(32).toString('hex');
+    sessions.set(token, { email, role, dosaName, expires: Date.now() + 8 * 60 * 60 * 1000 });
+    return token;
+}
+function getSession(req) {
+    const token = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '') || req.headers['x-session-token'];
+    const session = token && sessions.get(token);
+    if (!session || session.expires < Date.now()) { if (token) sessions.delete(token); return null; }
+    return session;
+}
+function requireAuth(req, res, next) {
+    const session = getSession(req);
+    if (!session) return res.status(401).json({ success: false, message: 'Please sign in again.' });
+    req.sessionUser = session; next();
+}
+function requireDeveloper(req, res, next) {
+    if (!req.sessionUser || req.sessionUser.role !== 'Developer') return res.status(403).json({ success: false, message: 'Developer access required.' });
+    next();
+}
 
 // Memory storage blocks
-const verificationCodes = {};
+const verificationCodes = new Map();
 let systemSponsors = ["Daramombe Old Students Association (DOSA)"]; 
 let systemAnnouncements = [
     { id: 1, sender: "Headmaster Office", text: "Welcome to the real-time DASAP Network Engine environment.", date: "2026-06-15" }
@@ -32,14 +57,12 @@ let systemAnnouncements = [
 let activeDosaSessions = {}; 
 
 // System Constants & Hardcoded Access Frameworks
-const DEVELOPER_EMAIL = "ceatynash@gmail.com"; 
-const GMAIL_USER = 'ceatynash@gmail.com'; 
-const GMAIL_PASS = 'saywifmdjnkmnnns'; 
-
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: GMAIL_USER, pass: GMAIL_PASS }
-});
+const DEVELOPER_EMAIL = (process.env.DEVELOPER_EMAIL || '').toLowerCase().trim();
+const GMAIL_USER = process.env.GMAIL_USER || '';
+const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD || '';
+const transporter = (GMAIL_USER && GMAIL_PASS) ? nodemailer.createTransport({
+    service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_PASS }
+}) : null;
 
 // Database Operations
 const readDatabase = () => {
@@ -80,7 +103,7 @@ app.get('/api/messages', (req, res) => res.json(systemAnnouncements));
 app.get('/api/sponsors', (req, res) => res.json(systemSponsors));
 
 // Endpoint for Developer dashboard initialization panel to populate active DOSA metrics on page mount
-app.get('/api/developer/tracked-dosa', (req, res) => {
+app.get('/api/developer/tracked-dosa', requireAuth, requireDeveloper, (req, res) => {
     res.json(Object.values(activeDosaSessions));
 });
 
@@ -92,8 +115,11 @@ app.post('/api/auth/request-code', async (req, res) => {
     const cleanEmail = email.toLowerCase().trim();
 
     // Verification Logic Rules Matrix
+    if (!['Developer', 'Teacher', 'Head/Deputy', 'Parent', 'DOSA'].includes(role)) {
+        return res.status(400).json({ success: false, message: 'Invalid account role.' });
+    }
     if (role === 'Developer') {
-        if (cleanEmail !== DEVELOPER_EMAIL) {
+        if (!DEVELOPER_EMAIL || cleanEmail !== DEVELOPER_EMAIL) {
             return res.status(403).json({ success: false, message: "Access Denied: Specified email violates core system administrator keys." });
         }
     } else if (role === 'Teacher' || role === 'Head/Deputy') {
@@ -104,15 +130,18 @@ app.post('/api/auth/request-code', async (req, res) => {
         }
     } else if (role === 'Parent') {
         const studentList = readDatabase();
-        const verifiedParent = studentList.find(s => s.parentEmail.toLowerCase() === cleanEmail);
-        if (!verifiedParent) {
-            return res.status(401).json({ success: false, message: "Authentication Dropped: No child records associated with this parent channel link." });
-        }
+        const verifiedParent = studentList.find(s => (s.parentEmail || '').toLowerCase() === cleanEmail);
+        if (!verifiedParent) return res.status(401).json({ success: false, message: 'No student record is linked to this parent email.' });
+    } else if (role === 'DOSA') {
+        let members = [];
+        try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) {}
+        if (!members.some(m => (m.email || '').toLowerCase() === cleanEmail)) return res.status(401).json({ success: false, message: 'This email is not registered for DOSA access.' });
     }
 
     // Generate a 6-Digit Cryptographic OTP Key
-    const secureToken = Math.floor(100000 + Math.random() * 900000).toString();
-    verificationCodes[cleanEmail] = { code: secureToken, role, dosaName: dosaName || 'Alumni Member Unit', expires: Date.now() + 600000 }; // 10 Min lifecycle
+    if (!transporter) return res.status(503).json({ success: false, message: 'Email delivery is not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD on the server.' });
+    const secureToken = crypto.randomInt(100000, 1000000).toString();
+    verificationCodes.set(cleanEmail, { code: secureToken, role, dosaName: dosaName || 'Alumni Member Unit', expires: Date.now() + 600000, attempts: 0 }); // 10 Min lifecycle
 
     // Build Email Template Parameters
     const emailTemplate = {
@@ -145,22 +174,27 @@ app.post('/api/auth/verify-code', (req, res) => {
     if (!email || !code) return res.status(400).json({ success: false, message: "Verification tracking components dropped." });
 
     const cleanEmail = email.toLowerCase().trim();
-    const activeMapping = verificationCodes[cleanEmail];
+    const activeMapping = verificationCodes.get(cleanEmail);
 
     if (!activeMapping) return res.status(400).json({ success: false, message: "No operational handshake sequence found for this parameter address." });
-    if (activeMapping.code !== code.trim()) return res.status(401).json({ success: false, message: "Security Integrity Failure: Invalid authorization code matching parameter keys." });
+    if (activeMapping.code !== code.trim()) {
+        activeMapping.attempts += 1;
+        if (activeMapping.attempts >= 5) verificationCodes.delete(cleanEmail);
+        return res.status(401).json({ success: false, message: 'Invalid code. Request a new code if attempts are exhausted.' });
+    }
     if (Date.now() > activeMapping.expires) {
-        delete verificationCodes[cleanEmail];
+        verificationCodes.delete(cleanEmail);
         return res.status(401).json({ success: false, message: "Time-window lifecycle verification expired. Please renew loop tracking requests." });
     }
 
     // Success handshake mapping
     delete verificationCodes[cleanEmail];
-    res.json({ success: true, role: activeMapping.role, dosaName: activeMapping.dosaName });
+    const sessionToken = createSession(cleanEmail, activeMapping.role, activeMapping.dosaName);
+    res.json({ success: true, role: activeMapping.role, dosaName: activeMapping.dosaName, token: sessionToken });
 });
 
 // Developer Matrix Infrastructure Operations
-app.post('/api/developer/add-student', (req, res) => {
+app.post('/api/developer/add-student', requireAuth, requireDeveloper, (req, res) => {
     const { name, schoolId, formClass, parentPhone, parentEmail } = req.body;
     const records = readDatabase();
     
@@ -183,7 +217,7 @@ app.post('/api/developer/add-student', (req, res) => {
     res.json({ success: true, student: targetNode });
 });
 
-app.post('/api/developer/add-staff', (req, res) => {
+app.post('/api/developer/add-staff', requireAuth, requireDeveloper, (req, res) => {
     const { name, email, role } = req.body;
     const faculty = readStaffDatabase();
 
@@ -199,11 +233,20 @@ app.post('/api/developer/add-staff', (req, res) => {
 
 
 // Real-Time Socket Interactivity Pipelines
+io.use((socket, next) => {
+    const token = socket.handshake.auth && socket.handshake.auth.token;
+    const session = token && sessions.get(token);
+    if (!session || session.expires < Date.now()) return next(new Error('Unauthorized'));
+    socket.sessionUser = session;
+    next();
+});
+
 io.on('connection', (socket) => {
     console.log(`Active node connected down terminal thread reference code ID: ${socket.id}`);
 
     // Track when active DOSA users connect
     socket.on('register_dosa_session', (payload) => {
+        if (socket.sessionUser.role !== 'DOSA') return;
         activeDosaSessions[socket.id] = {
             socketId: socket.id,
             email: payload.email,
@@ -215,6 +258,7 @@ io.on('connection', (socket) => {
 
     // Student Mark Modifying Transaction Block
     socket.on('update_student_marks', (payload) => {
+        if (!['Teacher', 'Head/Deputy', 'Developer'].includes(socket.sessionUser.role)) return;
         const { id, marks } = payload;
         let ledger = readDatabase();
         let entityIndex = ledger.findIndex(s => s.id === id);
@@ -228,6 +272,7 @@ io.on('connection', (socket) => {
 
     // Developer Purge Handlers
     socket.on('developer_remove_student', (id) => {
+        if (socket.sessionUser.role !== 'Developer') return;
         let ledger = readDatabase();
         let targetStudent = ledger.find(s => s.id === id);
         ledger = ledger.filter(s => s.id !== id);
@@ -240,6 +285,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('developer_remove_staff', (id) => {
+        if (socket.sessionUser.role !== 'Developer') return;
         let faculty = readStaffDatabase();
         let targetStaff = faculty.find(f => f.id === id);
         faculty = faculty.filter(f => f.id !== id);
@@ -253,6 +299,7 @@ io.on('connection', (socket) => {
 
     // Developer drops tracked live DOSA sockets
     socket.on('developer_disconnect_dosa', (targetSocketId) => {
+        if (socket.sessionUser.role !== 'Developer') return;
         if (io.sockets.sockets.get(targetSocketId)) {
             io.to(targetSocketId).emit('forced_dosa_kick');
             io.sockets.sockets.get(targetSocketId).disconnect();
@@ -263,9 +310,11 @@ io.on('connection', (socket) => {
 
     // Messaging Engine Cluster
     socket.on('submit_broadcast', (msgPayload) => {
+        if (!['Developer', 'Teacher', 'Head/Deputy'].includes(socket.sessionUser.role)) return;
+        if (!msgPayload || typeof msgPayload.text !== 'string' || !msgPayload.text.trim() || msgPayload.text.length > 2000) return;
         const finalizedBroadcast = {
             id: Date.now(),
-            sender: msgPayload.sender,
+            sender: socket.sessionUser.role + ' (' + socket.sessionUser.email + ')',
             text: msgPayload.text,
             date: new Date().toISOString().split('T')[0]
         };
@@ -287,5 +336,6 @@ server.listen(PORT, () => {
     console.log(`=======================================================`);
     console.log(`  DASAP CORE WEB ENGINE INITIALIZED ON PORT [${PORT}]`);
     console.log(`  Running Architecture Profile Mode 2026`);
+    if (!SESSION_SECRET) console.warn('WARNING: SESSION_SECRET is unset. Configure a long random secret in the deployment environment.');
     console.log(`=======================================================`);
 });
