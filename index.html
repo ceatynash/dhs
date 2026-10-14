@@ -7,6 +7,19 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
+    <style>
+      html { scroll-behavior: smooth; }
+      body { animation: page-in .45s ease-out both; }
+      #auth-card, #main-interface > *, #main-interface .bg-slate-900 { animation: rise-in .45s ease-out both; }
+      button, input, select, textarea { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+      button:hover { transform: translateY(-1px); }
+      button:active { transform: translateY(0) scale(.985); }
+      input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 3px rgb(245 158 11 / .12); }
+      .bg-slate-950.rounded.border-l-2 { animation: rise-in .28s ease-out both; }
+      @keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+    </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
 
@@ -214,7 +227,8 @@
     </div>
 
     <script>
-        const socket = io();
+        let sessionToken = '';
+        const socket = io({ autoConnect: false, auth: { token: '' } });
         
         let currentSessionEmail = '';
         let currentSessionRole = '';
@@ -278,6 +292,9 @@
                 const data = await res.json();
 
                 if (data.success) {
+                    sessionToken = data.token;
+                    socket.auth = { token: sessionToken };
+                    socket.connect();
                     initializeRuntimeDashboardInterface();
                 } else {
                     alert(data.message || "Invalid OTP code token verification.");
@@ -315,22 +332,22 @@
 
         async function syncDatabaseFeeds() {
             // Read Broadcast Messages Timeline Buffer
-            const msgRes = await fetch('/api/messages');
+            const msgRes = await fetch('/api/messages', { headers: { Authorization: `Bearer ${sessionToken}` } });
             const messages = await msgRes.json();
             populateBulletinTimelineFeed(messages);
 
             // Read Base Core Student List Matrix Records
-            const studRes = await fetch('/api/students');
+            const studRes = await fetch('/api/students', { headers: { Authorization: `Bearer ${sessionToken}` } });
             const students = await studRes.json();
             renderDashboardStudentDataLayers(students);
 
             // Read Staff Lists if Administration / Dev Profiles are Connected
             if (currentSessionRole === 'Developer') {
-                const staffRes = await fetch('/api/staff');
+                const staffRes = await fetch('/api/staff', { headers: { Authorization: `Bearer ${sessionToken}` } });
                 const staff = await staffRes.json();
                 renderDeveloperPurgeStaffTable(staff);
 
-                const dosaRes = await fetch('/api/developer/tracked-dosa');
+                const dosaRes = await fetch('/api/developer/tracked-dosa', { headers: { Authorization: `Bearer ${sessionToken}` } });
                 const dosaTracks = await dosaRes.json();
                 renderDeveloperDosaTrackerDeck(dosaTracks);
             }
@@ -508,7 +525,7 @@
             };
             const res = await fetch('/api/developer/add-student', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
                 body: JSON.stringify(body)
             });
             const data = await res.json();
