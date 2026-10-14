@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DHS Results Dashboard</title>
+    <title>Daramombe High School Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
@@ -25,7 +25,7 @@
 
     <div id="auth-card" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl mt-8">
         <div class="text-center mb-6">
-            <h1 class="text-2xl font-black text-amber-500 tracking-wider">DHS RESULTS DASHBOARD</h1>
+            <h1 class="text-2xl font-black text-amber-500 tracking-wider">DARAMOMBE HIGH SCHOOL PORTAL</h1>
             <p class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1">Daramombe High School Real-time Portal</p>
         </div>
 
@@ -73,7 +73,7 @@
             <div>
                 <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <h2 class="text-lg font-black tracking-wide uppercase text-slate-200">DHS LINK TERMINAL</h2>
+                    <h2 class="text-lg font-black tracking-wide uppercase text-slate-200">DARAMOMBE HIGH SCHOOL PORTAL</h2>
                 </div>
                 <p class="text-xs text-slate-400 font-mono">NODE REFERENCE IDENTIFICATION TOKEN: <span id="session-identity-tag" class="text-amber-500">GUEST</span></p>
             </div>
@@ -214,7 +214,7 @@
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 w-full max-w-sm space-y-4 shadow-2xl">
             <div>
                 <h4 id="modal-student-name" class="font-black text-slate-100 text-base uppercase">Student Progress Modification</h4>
-                <p id="modal-student-id" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mt-0.5">DHS RECORD FRAME</p>
+                <p id="modal-student-id" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mt-0.5">DARAMOMBE HIGH SCHOOL PORTAL RECORD</p>
             </div>
 
             <form id="modal-marks-form" class="space-y-3"></form>
@@ -410,7 +410,7 @@
                                 <h4 class="text-sm font-black text-slate-100 font-mono">${t.name}</h4>
                                 <p class="text-[10px] text-slate-500 font-mono">${t.schoolId} • ${t.class}</p>
                             </div>
-                            <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-950/40 border border-amber-800 text-amber-400 font-mono">Official DHS Script Record</span>
+                            <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-950/40 border border-amber-800 text-amber-400 font-mono">Official Daramombe High School Record</span>
                         </div>
                         <div class="grid grid-cols-3 gap-2">
                             ${Object.entries(t.marks).map(([subj, val]) => `
