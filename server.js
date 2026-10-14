@@ -2,7 +2,6 @@ const express = require('express');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
 const http = require('http');
-const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -47,7 +46,6 @@ function requireDeveloper(req, res, next) {
 }
 
 // Memory storage blocks
-const verificationCodes = new Map();
 let systemSponsors = ["Daramombe Old Students Association (DOSA)"]; 
 let systemAnnouncements = [
     { id: 1, sender: "Headmaster Office", text: "Welcome to the Daramombe High School Portal.", date: "2026-06-15" }
@@ -58,11 +56,7 @@ let activeDosaSessions = {};
 
 // System Constants & Hardcoded Access Frameworks
 const DEVELOPER_EMAIL = (process.env.DEVELOPER_EMAIL || '').toLowerCase().trim();
-const GMAIL_USER = process.env.GMAIL_USER || '';
-const GMAIL_PASS = process.env.GMAIL_APP_PASSWORD || '';
-const transporter = (GMAIL_USER && GMAIL_PASS) ? nodemailer.createTransport({
-    service: 'gmail', auth: { user: GMAIL_USER, pass: GMAIL_PASS }
-}) : null;
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
 
 // Database Operations
 const readDatabase = () => {
@@ -119,90 +113,68 @@ app.get('/api/developer/tracked-dosa', requireAuth, requireDeveloper, (req, res)
     res.json(Object.values(activeDosaSessions));
 });
 
-// Authentication and Security Pipeline Engine
-app.post('/api/auth/request-code', async (req, res) => {
-    const { email, role, dosaName } = req.body;
-    if (!email) return res.status(400).json({ success: false, message: "Missing email parameter identifier." });
-
-    const cleanEmail = email.toLowerCase().trim();
-
-    // Verification Logic Rules Matrix
-    if (!['Developer', 'Teacher', 'Head/Deputy', 'Parent', 'DOSA'].includes(role)) {
-        return res.status(400).json({ success: false, message: 'Invalid account role.' });
-    }
-    if (role === 'Developer') {
-        if (!DEVELOPER_EMAIL || cleanEmail !== DEVELOPER_EMAIL) {
-            return res.status(403).json({ success: false, message: "Access Denied: Specified email violates core system administrator keys." });
-        }
-    } else if (role === 'Teacher' || role === 'Head/Deputy') {
-        const staffList = readStaffDatabase();
-        const verifiedStaff = staffList.find(s => s.email.toLowerCase() === cleanEmail && s.role === role);
-        if (!verifiedStaff) {
-            return res.status(401).json({ success: false, message: "Identity Matching Failure: This email address is not cleared inside standard staff ledgers." });
-        }
-    } else if (role === 'Parent') {
-        const studentList = readDatabase();
-        const verifiedParent = studentList.find(s => (s.parentEmail || '').toLowerCase() === cleanEmail);
-        if (!verifiedParent) return res.status(401).json({ success: false, message: 'No student record is linked to this parent email.' });
-    } else if (role === 'DOSA') {
-        let members = [];
-        try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) {}
-        if (!members.some(m => (m.email || '').toLowerCase() === cleanEmail)) return res.status(401).json({ success: false, message: 'This email is not registered for DOSA access.' });
-    }
-
-    // Generate a 6-Digit Cryptographic OTP Key
-    if (!transporter) return res.status(503).json({ success: false, message: 'Email delivery is not configured. Set GMAIL_USER and GMAIL_APP_PASSWORD on the server.' });
-    const secureToken = crypto.randomInt(100000, 1000000).toString();
-    verificationCodes.set(cleanEmail, { code: secureToken, role, dosaName: dosaName || 'Alumni Member Unit', expires: Date.now() + 600000, attempts: 0 }); // 10 Min lifecycle
-
-    // Build Email Template Parameters
-    const emailTemplate = {
-        from: `"Daramombe High School Portal" <${GMAIL_USER}>`,
-        to: email,
-        subject: `[${secureToken}] Authentication Gateway Security Key Request`,
-        html: `
-            <div style="font-family: monospace; background-color: #020617; color: #f1f5f9; padding: 20px; border-radius: 8px;">
-                <h2 style="color: #f59e0b; border-bottom: 1px solid #1e293b; padding-bottom: 10px;">DARAMOMBE HIGH SCHOOL PORTAL — CLEARANCE VERIFICATION</h2>
-                <p>A verification request has mapped security routes to this handle for access permission as: <strong>${role}</strong>.</p>
-                <div style="background-color: #0f172a; border: 1px solid #334155; padding: 15px; text-align: center; font-size: 24px; color: #34d399; tracking-letter: 4px; font-weight: bold; margin: 20px 0;">
-                    ${secureToken}
-                </div>
-                <p style="color: #64748b; font-size: 11px;">Security Notice: This token expires exactly 10 minutes from issue generation timestamps. Do not share codes.</p>
-            </div>
-        `
-    };
-
-    try {
-        await transporter.sendMail(emailTemplate);
-        res.json({ success: true, message: `Access sequence mapped. A validation code has been sent over secure pipelines to ${email}.` });
-    } catch (err) {
-        console.error("Nodemailer routing exception thrown:", err);
-        res.status(500).json({ success: false, message: "Outbound Mail Dispatch failure. Check transport system credentials configuration keys." });
-    }
+// Google Sign-In authentication. The server verifies the Google ID token and derives role only from server-side allowlists.
+app.get('/api/auth/config', (_req, res) => {
+    if (!GOOGLE_CLIENT_ID) return res.status(503).json({ success: false, message: 'Google Sign-In is not configured on this server.' });
+    res.set('Cache-Control', 'no-store');
+    res.json({ clientId: GOOGLE_CLIENT_ID });
 });
 
-app.post('/api/auth/verify-code', (req, res) => {
-    const { email, code } = req.body;
-    if (!email || !code) return res.status(400).json({ success: false, message: "Verification tracking components dropped." });
-
-    const cleanEmail = email.toLowerCase().trim();
-    const activeMapping = verificationCodes.get(cleanEmail);
-
-    if (!activeMapping) return res.status(400).json({ success: false, message: "No operational handshake sequence found for this parameter address." });
-    if (activeMapping.code !== code.trim()) {
-        activeMapping.attempts += 1;
-        if (activeMapping.attempts >= 5) verificationCodes.delete(cleanEmail);
-        return res.status(401).json({ success: false, message: 'Invalid code. Request a new code if attempts are exhausted.' });
+async function verifyGoogleIdToken(idToken) {
+    if (!GOOGLE_CLIENT_ID) throw new Error('Google Sign-In is not configured.');
+    if (typeof idToken !== 'string' || idToken.length < 20 || idToken.length > 10000) throw new Error('Missing or invalid Google credential.');
+    const response = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), {
+        headers: { Accept: 'application/json' }
+    });
+    if (!response.ok) throw new Error('Google rejected this sign-in token.');
+    const claims = await response.json();
+    const issuerOk = claims.iss === 'accounts.google.com' || claims.iss === 'https://accounts.google.com';
+    if (!issuerOk || claims.aud !== GOOGLE_CLIENT_ID || Number(claims.exp) * 1000 <= Date.now() ||
+        !(claims.email_verified === true || claims.email_verified === 'true') || !claims.email) {
+        throw new Error('Google account verification failed. Please sign in again.');
     }
-    if (Date.now() > activeMapping.expires) {
-        verificationCodes.delete(cleanEmail);
-        return res.status(401).json({ success: false, message: "Time-window lifecycle verification expired. Please renew loop tracking requests." });
-    }
+    return { email: claims.email.toLowerCase().trim() };
+}
 
-    // Success handshake mapping
-    verificationCodes.delete(cleanEmail);
-    const sessionToken = createSession(cleanEmail, activeMapping.role, activeMapping.dosaName);
-    res.json({ success: true, role: activeMapping.role, dosaName: activeMapping.dosaName, token: sessionToken });
+app.post('/api/auth/google', async (req, res) => {
+    try {
+        const { credential, role } = req.body || {};
+        if (!['Developer', 'Teacher', 'Head/Deputy', 'Parent', 'DOSA'].includes(role)) {
+            return res.status(400).json({ success: false, message: 'Choose a valid portal role.' });
+        }
+        const identity = await verifyGoogleIdToken(credential);
+        const cleanEmail = identity.email;
+        let dosaName = '';
+
+        if (role === 'Developer') {
+            if (!DEVELOPER_EMAIL || cleanEmail !== DEVELOPER_EMAIL) {
+                return res.status(403).json({ success: false, message: 'This Google account is not the configured portal developer.' });
+            }
+        } else if (role === 'Teacher' || role === 'Head/Deputy') {
+            const staff = readStaffDatabase().find(item =>
+                (item.email || '').toLowerCase().trim() === cleanEmail && item.role === role
+            );
+            if (!staff) return res.status(403).json({ success: false, message: 'This Google account is not registered for the selected staff role.' });
+        } else if (role === 'Parent') {
+            const linked = readDatabase().some(student =>
+                (student.parentEmail || '').toLowerCase().trim() === cleanEmail
+            );
+            if (!linked) return res.status(403).json({ success: false, message: 'No student record is linked to this Google account.' });
+        } else if (role === 'DOSA') {
+            let members = [];
+            try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) {}
+            const member = members.find(item => (item.email || '').toLowerCase().trim() === cleanEmail);
+            if (!member) return res.status(403).json({ success: false, message: 'This Google account is not registered for DOSA access.' });
+            dosaName = member.name || member.dosaName || 'Daramombe Old Students Association (DOSA)';
+        }
+
+        const sessionToken = createSession(cleanEmail, role, dosaName);
+        res.set('Cache-Control', 'no-store');
+        return res.json({ success: true, email: cleanEmail, role, dosaName, token: sessionToken });
+    } catch (err) {
+        console.error('Google Sign-In verification failed:', err.message);
+        return res.status(401).json({ success: false, message: err.message || 'Google Sign-In failed. Please try again.' });
+    }
 });
 
 // Developer Matrix Infrastructure Operations
