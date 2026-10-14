@@ -46,24 +46,9 @@
                 <input type="text" id="auth-dosa-name" placeholder="e.g., Daramombe Old Students Association (DOSA)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-slate-100">
             </div>
 
-            <div>
-                <label class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Account Mail Handle</label>
-                <input type="email" id="auth-email" placeholder="identity@domain.com" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-slate-100">
-            </div>
-
-            <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 font-bold text-slate-950 py-2 rounded-lg transition text-sm uppercase tracking-wider">
-                Request Clearance OTP
-            </button>
-        </form>
-
-        <form id="otp-form" class="hidden space-y-4">
-            <p class="text-xs text-slate-400 text-center">Enter the 6-digit security verification code dispatched to your account.</p>
-            <div>
-                <input type="text" id="otp-code" placeholder="000000" maxlength="6" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-3 text-center text-xl font-mono font-bold tracking-widest focus:outline-none focus:border-amber-500 text-slate-100">
-            </div>
-            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold text-slate-950 py-2 rounded-lg transition text-sm uppercase tracking-wider">
-                Verify System Clearance
-            </button>
+            <p class="text-xs text-slate-400 text-center">Choose your registered portal role, then continue with the Google account registered to that role. Student records stay protected by server-side access checks.</p>
+            <div id="google-signin-button" class="w-full flex justify-center min-h-11" aria-label="Sign in with Google"></div>
+            <p id="google-signin-status" class="text-xs text-center text-slate-400" role="status" aria-live="polite">Loading secure Google Sign-In…</p>
         </form>
     </div>
 
@@ -248,61 +233,66 @@
             }
         });
 
-        // Form Phase 1 Handler: Request OTP code
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        // Google Identity Services supplies an ID token; the server verifies it and assigns the authorized role.
+        document.getElementById('login-form').addEventListener('submit', (event) => event.preventDefault());
+
+        async function initializeGoogleSignIn() {
+            const status = document.getElementById('google-signin-status');
+            const container = document.getElementById('google-signin-button');
+            try {
+                const configResponse = await fetch('/api/auth/config', { cache: 'no-store' });
+                const config = await configResponse.json();
+                if (!configResponse.ok || !config.clientId) throw new Error(config.message || 'Google Sign-In is not configured.');
+                if (!window.google || !google.accounts || !google.accounts.id) throw new Error('Google Sign-In could not load. Check your connection or content blockers.');
+                google.accounts.id.initialize({
+                    client_id: config.clientId,
+                    callback: handleGoogleCredential,
+                    auto_select: false,
+                    cancel_on_tap_outside: true
+                });
+                const renderButton = () => {
+                    container.innerHTML = '';
+                    google.accounts.id.renderButton(container, {
+                        type: 'standard', theme: 'filled_black', size: 'large',
+                        text: 'signin_with', shape: 'rectangular',
+                        width: Math.max(220, Math.min(360, Math.floor(container.clientWidth || 320))),
+                        logo_alignment: 'left'
+                    });
+                };
+                renderButton();
+                window.addEventListener('resize', renderButton);
+                status.textContent = 'Use the Google account registered for the selected role.';
+            } catch (error) {
+                status.textContent = error.message || 'Google Sign-In is unavailable.';
+                status.classList.add('text-rose-400');
+            }
+        }
+
+        async function handleGoogleCredential(response) {
+            const status = document.getElementById('google-signin-status');
             const role = document.getElementById('auth-role').value;
-            const email = document.getElementById('auth-email').value;
-            const dosaName = document.getElementById('auth-dosa-name').value;
-
+            status.textContent = 'Verifying your Google account…';
+            status.classList.remove('text-rose-400');
             try {
-                const res = await fetch('/api/auth/request-code', {
+                const res = await fetch('/api/auth/google', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, role, dosaName })
+                    body: JSON.stringify({ credential: response.credential, role })
                 });
                 const data = await res.json();
-
-                if (data.success) {
-                    currentSessionEmail = email;
-                    currentSessionRole = role;
-                    currentSessionDosaName = dosaName;
-                    
-                    document.getElementById('login-form').classList.add('hidden');
-                    document.getElementById('otp-form').classList.remove('hidden');
-                } else {
-                    alert(data.message || "Security Handshake Dropped.");
-                }
-            } catch (err) {
-                alert("Communication failure initializing security gateway.");
+                if (!res.ok || !data.success) throw new Error(data.message || 'Google sign-in was not authorized.');
+                sessionToken = data.token;
+                currentSessionEmail = data.email;
+                currentSessionRole = data.role;
+                currentSessionDosaName = data.dosaName || '';
+                socket.auth = { token: sessionToken };
+                socket.connect();
+                initializeRuntimeDashboardInterface();
+            } catch (error) {
+                status.textContent = error.message || 'Sign-in failed. Choose the registered Google account and try again.';
+                status.classList.add('text-rose-400');
             }
-        });
-
-        // Form Phase 2 Handler: Verify OTP code
-        document.getElementById('otp-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const code = document.getElementById('otp-code').value;
-
-            try {
-                const res = await fetch('/api/auth/verify-code', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: currentSessionEmail, code })
-                });
-                const data = await res.json();
-
-                if (data.success) {
-                    sessionToken = data.token;
-                    socket.auth = { token: sessionToken };
-                    socket.connect();
-                    initializeRuntimeDashboardInterface();
-                } else {
-                    alert(data.message || "Invalid OTP code token verification.");
-                }
-            } catch (err) {
-                alert("Verification payload routing channel execution failure.");
-            }
-        });
+        }
 
         function initializeRuntimeDashboardInterface() {
             document.getElementById('auth-card').classList.add('hidden');
@@ -546,7 +536,7 @@
             };
             const res = await fetch('/api/developer/add-staff', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
                 body: JSON.stringify(body)
             });
             const data = await res.json();
@@ -584,5 +574,6 @@
             window.location.reload();
         });
     </script>
+    <script src="https://accounts.google.com/gsi/client" async defer onload="initializeGoogleSignIn()"></script>
 </body>
 </html>
