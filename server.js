@@ -16,7 +16,7 @@ const io = new Server(server, {
 app.use(express.json({ limit: '32kb' }));
 
 // Serve static assets out of the root or a public folder
-app.use(express.static(__dirname));
+// Serve only the explicit routes below; never expose JSON ledgers or server source as static files.
 
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'students.json');
@@ -91,6 +91,18 @@ const readStaffDatabase = () => {
 };
 
 const writeStaffDatabase = (data) => fs.writeFileSync(STAFF_FILE, JSON.stringify(data, null, 2), 'utf8');
+
+function emitStudentLedger(records) {
+    for (const client of io.sockets.sockets.values()) {
+        const user = client.sessionUser;
+        if (!user) continue;
+        if (user.role === 'Parent') {
+            client.emit('ledger_sync_update', records.filter(s => (s.parentEmail || '').toLowerCase() === user.email));
+        } else if (user.role !== 'DOSA') {
+            client.emit('ledger_sync_update', records);
+        }
+    }
+}
 
 // HTTP Core REST API Routers
 app.get('/', (req, res) => {
@@ -213,7 +225,7 @@ app.post('/api/developer/add-student', requireAuth, requireDeveloper, (req, res)
 
     records.push(targetNode);
     writeDatabase(records);
-    io.emit('ledger_sync_update', records); // Live update up out standard socket maps
+    emitStudentLedger(records); // Send only records this authenticated role is allowed to see
     res.json({ success: true, student: targetNode });
 });
 
@@ -266,7 +278,7 @@ io.on('connection', (socket) => {
         if (entityIndex !== -1) {
             ledger[entityIndex].marks = marks;
             writeDatabase(ledger);
-            io.emit('ledger_sync_update', ledger); // Push update to everyone instantly
+            emitStudentLedger(ledger); // Push role-filtered updates to connected clients
         }
     });
 
@@ -278,7 +290,7 @@ io.on('connection', (socket) => {
         ledger = ledger.filter(s => s.id !== id);
         writeDatabase(ledger);
         
-        io.emit('ledger_sync_update', ledger);
+        emitStudentLedger(ledger);
         if (targetStudent) {
             io.emit('forced_disconnect_target', { type: 'Student', targetId: id });
         }
