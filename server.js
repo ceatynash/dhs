@@ -188,7 +188,7 @@ app.post('/api/auth/verify-code', (req, res) => {
     }
 
     // Success handshake mapping
-    delete verificationCodes[cleanEmail];
+    verificationCodes.delete(cleanEmail);
     const sessionToken = createSession(cleanEmail, activeMapping.role, activeMapping.dosaName);
     res.json({ success: true, role: activeMapping.role, dosaName: activeMapping.dosaName, token: sessionToken });
 });
