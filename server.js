@@ -50,7 +50,7 @@ function requireDeveloper(req, res, next) {
 const verificationCodes = new Map();
 let systemSponsors = ["Daramombe Old Students Association (DOSA)"]; 
 let systemAnnouncements = [
-    { id: 1, sender: "Headmaster Office", text: "Welcome to the real-time DASAP Network Engine environment.", date: "2026-06-15" }
+    { id: 1, sender: "Headmaster Office", text: "Welcome to the Daramombe High School Portal.", date: "2026-06-15" }
 ];
 
 // LIVE TRACKER STORAGE: Maps socket IDs to active DOSA session nodes
@@ -157,12 +157,12 @@ app.post('/api/auth/request-code', async (req, res) => {
 
     // Build Email Template Parameters
     const emailTemplate = {
-        from: `"DASAP System Core" <${GMAIL_USER}>`,
+        from: `"Daramombe High School Portal" <${GMAIL_USER}>`,
         to: email,
         subject: `[${secureToken}] Authentication Gateway Security Key Request`,
         html: `
             <div style="font-family: monospace; background-color: #020617; color: #f1f5f9; padding: 20px; border-radius: 8px;">
-                <h2 style="color: #f59e0b; border-bottom: 1px solid #1e293b; padding-bottom: 10px;">DASAP SYSTEM CLEARANCE CHALLENGE</h2>
+                <h2 style="color: #f59e0b; border-bottom: 1px solid #1e293b; padding-bottom: 10px;">DARAMOMBE HIGH SCHOOL PORTAL — CLEARANCE VERIFICATION</h2>
                 <p>A verification request has mapped security routes to this handle for access permission as: <strong>${role}</strong>.</p>
                 <div style="background-color: #0f172a; border: 1px solid #334155; padding: 15px; text-align: center; font-size: 24px; color: #34d399; tracking-letter: 4px; font-weight: bold; margin: 20px 0;">
                     ${secureToken}
@@ -346,7 +346,7 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
     console.log(`=======================================================`);
-    console.log(`  DASAP CORE WEB ENGINE INITIALIZED ON PORT [${PORT}]`);
+    console.log(`  DARAMOMBE HIGH SCHOOL PORTAL INITIALIZED ON PORT [${PORT}]`);
     console.log(`  Running Architecture Profile Mode 2026`);
     if (!SESSION_SECRET) console.warn('WARNING: SESSION_SECRET is unset. Configure a long random secret in the deployment environment.');
     console.log(`=======================================================`);
