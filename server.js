@@ -103,10 +103,19 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.get('/api/students', (req, res) => res.json(readDatabase()));
-app.get('/api/staff', (req, res) => res.json(readStaffDatabase()));
-app.get('/api/messages', (req, res) => res.json(systemAnnouncements));
-app.get('/api/sponsors', (req, res) => res.json(systemSponsors));
+app.get('/api/students', requireAuth, (req, res) => {
+    const records = readDatabase();
+    if (req.sessionUser.role === 'Parent') {
+        return res.json(records.filter(student =>
+            (student.parentEmail || '').toLowerCase().trim() === req.sessionUser.email
+        ));
+    }
+    if (req.sessionUser.role === 'DOSA' || ['Teacher', 'Head/Deputy', 'Developer'].includes(req.sessionUser.role)) return res.json(records);
+    return res.status(403).json({ success: false, message: 'Student records access denied.' });
+});
+app.get('/api/staff', requireAuth, requireDeveloper, (req, res) => res.json(readStaffDatabase()));
+app.get('/api/messages', requireAuth, (req, res) => res.json(systemAnnouncements));
+app.get('/api/sponsors', requireAuth, (req, res) => res.json(systemSponsors));
 
 // Endpoint for Developer dashboard initialization panel to populate active DOSA metrics on page mount
 app.get('/api/developer/tracked-dosa', requireAuth, requireDeveloper, (req, res) => {
