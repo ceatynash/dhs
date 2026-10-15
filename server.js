@@ -155,6 +155,47 @@ function createInvoicePdf(lines) {
     return Buffer.from(pdf, 'binary');
 }
 
+app.put('/api/head/students/:studentId/invoice', requireAuth, (req, res) => {
+    if (req.sessionUser.role !== 'Head/Deputy') return res.status(403).json({ success: false, message: 'Only Head/Deputy staff may update invoices.' });
+    const records = readDatabase();
+    const student = records.find(item => String(item.id) === String(req.params.studentId));
+    if (!student) return res.status(404).json({ success: false, message: 'Student record not found.' });
+    const body = req.body || {};
+    const studentName = String(body.studentName || '').trim().slice(0, 120);
+    const schoolId = String(body.schoolId || '').trim().slice(0, 60);
+    const studentClass = String(body.studentClass || '').trim().slice(0, 60);
+    const term = String(body.term || '').trim().slice(0, 80);
+    const dueDate = String(body.dueDate || '').trim().slice(0, 10);
+    const currency = String(body.currency || 'USD').trim().toUpperCase().slice(0, 8);
+    const notes = String(body.notes || '').trim().slice(0, 500);
+    const amountPaid = Number(body.amountPaid ?? 0);
+    const rawItems = Array.isArray(body.items) ? body.items : [];
+    if (!studentName || !schoolId || !studentClass || !term) return res.status(400).json({ success: false, message: 'Student name, school ID, class and term are required.' });
+    if (!['USD', 'ZWL', 'ZWG', 'ZAR', 'GBP'].includes(currency)) return res.status(400).json({ success: false, message: 'Choose a supported invoice currency.' });
+    if (!Number.isFinite(amountPaid) || amountPaid < 0 || amountPaid > 1000000000) return res.status(400).json({ success: false, message: 'Amount paid must be a valid non-negative number.' });
+    if (rawItems.length < 1 || rawItems.length > 30) return res.status(400).json({ success: false, message: 'Enter between 1 and 30 fee items.' });
+    const items = [];
+    for (const raw of rawItems) {
+        const description = String(raw && raw.description || '').trim().slice(0, 120);
+        const amount = Number(raw && raw.amount);
+        if (!description || !Number.isFinite(amount) || amount < 0 || amount > 1000000000) return res.status(400).json({ success: false, message: 'Each fee item needs a description and a valid non-negative amount.' });
+        items.push({ description, amount: Math.round(amount * 100) / 100 });
+    }
+    if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return res.status(400).json({ success: false, message: 'Due date must use YYYY-MM-DD format.' });
+    // Preserve the parent email linkage and internal student ID.
+    student.name = studentName; student.schoolId = schoolId; student.class = studentClass;
+    const totalAmount = Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100;
+    student.invoice = {
+        invoiceNumber: 'DHS-' + String(schoolId).replace(/[^a-zA-Z0-9_-]/g, '-') + '-' + term.replace(/[^a-zA-Z0-9_-]/g, '-'),
+        studentName, schoolId, studentClass, term, dueDate, currency, items, totalAmount,
+        amountPaid: Math.round(amountPaid * 100) / 100,
+        balanceDue: Math.max(0, Math.round((totalAmount - amountPaid) * 100) / 100),
+        notes, updatedAt: new Date().toISOString(), updatedBy: req.sessionUser.email
+    };
+    writeDatabase(records); emitStudentLedger(records);
+    return res.json({ success: true, student: { id: student.id, name: student.name, schoolId: student.schoolId, class: student.class, invoice: student.invoice } });
+});
+
 app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) => {
     // Invoices are strictly parent-only and scoped to a child linked to the signed-in email.
     if (req.sessionUser.role !== 'Parent') {
@@ -191,9 +232,11 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
         'PARENT FEE INVOICE',
         'Invoice reference: ' + reference,
         'Issue date: ' + issued,
-        'Student: ' + (student.name || 'Not recorded'),
-        'School ID: ' + (student.schoolId || 'Not recorded'),
-        'Class: ' + (student.class || 'Not recorded'),
+        'Student: ' + (invoice.studentName || student.name || 'Not recorded'),
+        'School ID: ' + (invoice.schoolId || student.schoolId || 'Not recorded'),
+        'Class: ' + (invoice.studentClass || student.class || 'Not recorded'),
+        'Term: ' + (invoice.term || 'Not specified'),
+        'Due date: ' + (invoice.dueDate || 'Not specified'),
         'Parent account: ' + req.sessionUser.email,
         '-----------------------------------------------'
     ];
@@ -211,6 +254,7 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
         lines.push('Total fees: Not configured');
         lines.push('Balance due: Not available - confirm with the school finance office.');
     }
+    if (invoice.notes) lines.push('School note: ' + String(invoice.notes).slice(0, 140));
     lines.push('This document reflects the fee data currently recorded by the school.');
     if (!hasFinancialData) lines.push('It is not a statement of an assessed amount payable.');
     const pdf = createInvoicePdf(lines);
