@@ -129,6 +129,33 @@ app.get('/api/auth/config', (_req, res) => {
     res.json({ clientId: GOOGLE_CLIENT_ID });
 });
 
+// Local-only development preview. Never enable this on a public deployment.
+const LOCAL_DEMO_ENABLED =
+    process.env.NODE_ENV === 'development' &&
+    process.env.DEMO_MODE === 'true';
+
+function isLocalDevelopmentRequest(req) {
+    const host = (req.hostname || '').toLowerCase();
+    return LOCAL_DEMO_ENABLED && (host === 'localhost' || host === '127.0.0.1' || host === '::1');
+}
+
+app.get('/api/dev/preview-status', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ enabled: isLocalDevelopmentRequest(req) });
+});
+
+app.post('/api/dev/preview-session', (req, res) => {
+    if (!isLocalDevelopmentRequest(req)) {
+        return res.status(404).json({ success: false, message: 'Local preview is unavailable.' });
+    }
+    // Developer role is intentionally granted only to a local process using DEMO_MODE.
+    const email = 'local-preview@localhost';
+    const role = 'Developer';
+    const token = createSession(email, role, '');
+    res.set('Cache-Control', 'no-store');
+    return res.json({ success: true, email, role, token });
+});
+
 async function verifyGoogleIdToken(idToken) {
     if (!GOOGLE_CLIENT_ID) throw new Error('Google Sign-In is not configured.');
     if (typeof idToken !== 'string' || idToken.length < 20 || idToken.length > 10000) throw new Error('Missing or invalid Google credential.');
