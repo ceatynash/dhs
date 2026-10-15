@@ -11,9 +11,7 @@
       html { scroll-behavior: smooth; }
       body { animation: page-in .45s ease-out both; }
       #auth-card, #main-interface > *, #main-interface .bg-slate-900 { animation: rise-in .45s ease-out both; }
-      #main-interface.preview-mode form, #main-interface.preview-mode button:not(#preview-role-switch) { pointer-events: none !important; opacity: .65; }
-      #main-interface.preview-mode input, #main-interface.preview-mode textarea, #main-interface.preview-mode form button { pointer-events: none !important; }
-      button, input, select, textarea { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
+            button, input, select, textarea { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background-color .18s ease; }
       button:hover { transform: translateY(-1px); }
       button:active { transform: translateY(0) scale(.985); }
       input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 3px rgb(245 158 11 / .12); }
@@ -43,7 +41,7 @@
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
 
-    <div id="auth-card" class="hidden w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl mt-8">
+    <div id="auth-card" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl mt-8">
         <div class="text-center mb-6">
             <h1 class="text-2xl font-black text-amber-500 tracking-wider">DARAMOMBE HIGH SCHOOL PORTAL</h1>
             <p class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1">Daramombe High School Real-time Portal</p>
@@ -72,16 +70,7 @@
         </form>
     </div>
 
-    <div id="main-interface" class="w-full max-w-7xl space-y-6 mt-4 preview-mode">
-        <div class="bg-amber-950/40 border border-amber-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div><p class="text-sm font-black uppercase tracking-wide text-amber-300">Dashboard Preview Mode</p><p class="text-xs text-amber-100/80 mt-1">Demo data only. Editing, broadcasting and record-management actions are disabled. Server-side sign-in and access checks remain enabled.</p></div>
-            <label class="text-xs font-bold text-amber-100 flex items-center gap-2">Preview portal
-                <select id="preview-role-switch" onchange="switchPreviewRole(this.value)" class="bg-slate-950 border border-amber-800 rounded-lg px-3 py-2 text-sm text-slate-100">
-                    <option value="Developer">Developer dashboard</option><option value="Teacher">Teacher dashboard</option><option value="Head/Deputy">Head / Deputy dashboard</option><option value="Parent">Parent dashboard</option><option value="DOSA">DOSA dashboard</option>
-                </select>
-            </label>
-        </div>
-        
+    <div id="main-interface" class="hidden w-full max-w-7xl space-y-6 mt-4">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900 border border-slate-800 rounded-xl p-4 gap-4 shadow-xl">
             <div>
                 <div class="flex items-center gap-2">
@@ -289,44 +278,6 @@
         let activeSelectedEditingStudentId = null;
 
         const isPreviewMode = true;
-        const previewStudents = [
-            { id: 1, name: "Sample Student One", schoolId: "DEMO-2026-001", class: "Form 6", parentPhone: "", parentEmail: "parent-preview@example.invalid", marks: { "Mathematics": 85, "English Literature": 74, "History": 91 } },
-            { id: 2, name: "Sample Student Two", schoolId: "DEMO-2026-002", class: "Form 4", parentPhone: "", parentEmail: "parent-preview@example.invalid", marks: { "Mathematics": 62, "English Language": 78, "Geography": 70 } }
-        ];
-        const previewStaff = [
-            { id: 1, name: "Sample Teacher", email: "teacher-preview@example.invalid", role: "Teacher" },
-            { id: 2, name: "Sample Headmaster", email: "head-preview@example.invalid", role: "Head/Deputy" }
-        ];
-        const previewMessages = [{ id: 1, sender: "Portal Preview", text: "Welcome to the Daramombe High School dashboard preview. This is demonstration content only.", date: "2026-10-15" }];
-
-        function switchPreviewRole(role) {
-            currentSessionRole = role;
-            currentSessionEmail = role === "Parent" ? "parent-preview@example.invalid" : role.toLowerCase().replace(/[^a-z]+/g, "-") + "-preview@example.invalid";
-            currentSessionDosaName = role === "DOSA" ? "DOSA Preview Group" : "";
-            document.getElementById("session-identity-tag").innerText = "PREVIEW MODE";
-            document.getElementById("session-role-tag").innerText = role.toUpperCase();
-            ["panel-parent", "panel-staff", "panel-developer"].forEach(id => document.getElementById(id).classList.add("hidden"));
-            if (role === "Parent" || role === "DOSA") document.getElementById("panel-parent").classList.remove("hidden");
-            if (["Teacher", "Head/Deputy", "Developer"].includes(role)) {
-                document.getElementById("panel-staff").classList.remove("hidden");
-                document.getElementById("teacher-subject-view").innerText = "PREVIEW: " + role.toUpperCase();
-            }
-            if (role === "Developer") document.getElementById("panel-developer").classList.remove("hidden");
-            renderDashboardStudentDataLayers(previewStudents);
-            populateBulletinTimelineFeed(previewMessages);
-            if (role === "Developer") {
-                renderDeveloperPurgeStaffTable(previewStaff);
-                renderDeveloperDosaTrackerDeck([]);
-            }
-        }
-
-        function initializePreviewMode() {
-            document.getElementById("auth-card").classList.add("hidden");
-            document.getElementById("main-interface").classList.remove("hidden");
-            document.getElementById("preview-role-switch").value = "Developer";
-            switchPreviewRole("Developer");
-        }
-
         // Watch dropdown choice to show / hide specific field frameworks
         document.getElementById('auth-role').addEventListener('change', (e) => {
             const dosaWrapper = document.getElementById('dosa-name-wrapper');
@@ -855,7 +806,7 @@
             }
         });
 
-            initializePreviewMode();
+            initializeGoogleSignIn();
     </script>
 </body>
 </html>
