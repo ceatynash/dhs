@@ -642,7 +642,9 @@ async function sendParentCredentialNotification(student) {
     const cfg = parentNotificationConfig();
     if (!cfg.enabled) return { sent: false, method: '', reason: 'Parent notifications are disabled in Render settings.' };
     const email = String(student.parentEmail || '').trim();
-    const phone = String(student.parentPhone || '').replace(/[^\d+]/g, '');
+    let phone = String(student.parentPhone || '').replace(/[^\d+]/g, '');
+    if (/^0\d{9}$/.test(phone)) phone = '+263' + phone.slice(1);
+    else if (/^263\d{9}$/.test(phone)) phone = '+' + phone;
     const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const validPhone = /^\+[1-9]\d{7,14}$/.test(phone);
     if (validEmail && cfg.smtpReady) {
