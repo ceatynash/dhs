@@ -233,7 +233,7 @@
                             </div>
                             <div class="max-h-80 overflow-auto rounded-lg border border-slate-700">
                                 <table class="w-full text-left text-[11px]">
-                                    <thead class="sticky top-0 bg-slate-800 text-slate-300"><tr><th class="p-2">Import</th><th class="p-2">Student / DHS ID</th><th class="p-2">Class</th><th class="p-2">Status / issues</th></tr></thead>
+                                    <thead class="sticky top-0 bg-slate-800 text-slate-300"><tr><th class="p-2">Import</th><th class="p-2">Student / DHS ID</th><th class="p-2">Class</th><th class="p-2">Parent contact</th><th class="p-2">Status / issues</th></tr></thead>
                                     <tbody id="dev-student-pdf-rows" class="divide-y divide-slate-800"></tbody>
                                 </table>
                             </div>
@@ -783,6 +783,11 @@
                 const classCell = document.createElement('td');
                 classCell.className = 'p-2 align-top text-slate-300';
                 classCell.textContent = student.studentClass || 'Missing class';
+                const contactCell = document.createElement('td');
+                contactCell.className = 'p-2 align-top text-slate-300';
+                const contact = document.createElement('div');
+                contact.textContent = student.parentEmail || student.parentPhone || 'No contact extracted';
+                contactCell.appendChild(contact);
                 const issueCell = document.createElement('td');
                 issueCell.className = 'p-2 align-top';
                 const status = document.createElement('div');
@@ -792,7 +797,7 @@
                 issue.className = 'mt-1 text-slate-400';
                 issue.textContent = Array.isArray(student.issues) && student.issues.length ? student.issues.join('; ') : (student.sourceEvidence || 'Verify against the original PDF');
                 issueCell.append(status, issue);
-                tr.append(selectCell, nameCell, classCell, issueCell);
+                tr.append(selectCell, nameCell, classCell, contactCell, issueCell);
                 studentPdfRows.appendChild(tr);
             });
             document.getElementById('dev-student-pdf-summary').textContent =
@@ -846,6 +851,36 @@
             studentPdfRows.querySelectorAll('input[data-student-import-index]').forEach(checkbox => { checkbox.checked = false; });
         });
 
+        async function pollParentNotificationJob(jobId) {
+            studentPdfStatus.textContent = 'Student records are saved. Sending individual private notifications; please keep this page open to see delivery results.';
+            try {
+                const response = await fetch('/api/developer/student-import/notifications/' + encodeURIComponent(jobId), {
+                    headers: { Authorization: 'Bearer ' + sessionToken },
+                    cache: 'no-store'
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) throw new Error(result.message || 'Could not retrieve notification status.');
+                if (!result.completed) {
+                    setTimeout(() => pollParentNotificationJob(jobId), 2500);
+                    return;
+                }
+                const summary = result.summary || { total: 0, sent: 0, failed: 0, emailSent: 0, smsSent: 0 };
+                oneTimeImportPins = Array.isArray(result.failedPins) ? result.failedPins : [];
+                studentPdfDownloadPins.classList.toggle('hidden', oneTimeImportPins.length === 0);
+                studentPdfStatus.textContent = 'Parent notifications complete. Sent: ' + summary.sent + '/' + summary.total +
+                    ' (email: ' + summary.emailSent + ', SMS: ' + summary.smsSent + '); failed: ' + summary.failed +
+                    '. ' + (summary.failed ? 'Download the secure fallback PIN CSV and contact those families privately.' : 'No fallback PIN export is needed.');
+                const results = Array.isArray(result.results) ? result.results : [];
+                if (results.some(item => !item.sent)) {
+                    const failures = results.filter(item => !item.sent).slice(0, 8)
+                        .map(item => item.name + ' (' + item.schoolId + '): ' + item.reason).join(' | ');
+                    studentPdfStatus.textContent += ' First delivery issues: ' + failures;
+                }
+            } catch (error) {
+                studentPdfStatus.textContent = 'Student records were saved, but notification status could not be checked: ' + (error.message || 'unknown error') + '. Refresh the dashboard only after noting the import result.';
+            }
+        }
+
         studentPdfCommit.addEventListener('click', async () => {
             if (!activeStudentImportDraftId) { studentPdfStatus.textContent = 'Analyze a PDF before importing.'; return; }
             const selectedIndexes = Array.from(studentPdfRows.querySelectorAll('input[data-student-import-index]:checked'))
@@ -862,12 +897,13 @@
                 });
                 const result = await response.json().catch(() => ({}));
                 if (!response.ok || !result.success) throw new Error(result.message || 'Student import failed.');
-                oneTimeImportPins = Array.isArray(result.initialPins) ? result.initialPins : [];
+                oneTimeImportPins = [];
                 activeStudentImportDraftId = null;
                 studentPdfStatus.textContent = result.message + ' Imported: ' + result.importedCount + '; skipped: ' + result.skippedCount + '.';
-                studentPdfDownloadPins.classList.toggle('hidden', oneTimeImportPins.length === 0);
+                studentPdfDownloadPins.classList.add('hidden');
                 studentPdfCommit.disabled = true;
                 syncDatabaseFeeds();
+                if (result.notificationJobId) pollParentNotificationJob(result.notificationJobId);
             } catch (error) {
                 studentPdfStatus.textContent = error.message || 'Student import failed.';
                 studentPdfCommit.disabled = false;
