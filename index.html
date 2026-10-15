@@ -21,6 +21,24 @@
       @keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
       @keyframes rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+    
+      /* DHS role-aware AI assistant */
+      #dhs-ai-assistant { position: fixed; right: 18px; bottom: 18px; z-index: 10000; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      #dhs-ai-toggle { display:flex; align-items:center; gap:9px; border:1px solid #f59e0b; border-radius:999px; background:#f59e0b; color:#111827; padding:12px 16px; font-size:12px; font-weight:900; box-shadow:0 12px 35px #0008; cursor:pointer; }
+      #dhs-ai-window { display:none; width:min(370px, calc(100vw - 28px)); height:min(520px, calc(100vh - 110px)); margin-bottom:12px; overflow:hidden; border:1px solid #334155; border-radius:18px; background:#0b1220; box-shadow:0 24px 70px #000b; }
+      #dhs-ai-window.open { display:flex; flex-direction:column; }
+      #dhs-ai-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px; background:#111827; border-bottom:1px solid #334155; }
+      #dhs-ai-log { display:flex; flex:1; flex-direction:column; gap:10px; overflow-y:auto; padding:14px; }
+      .dhs-ai-message { max-width:92%; white-space:pre-wrap; overflow-wrap:anywhere; border-radius:12px; padding:10px 12px; font-size:12px; line-height:1.55; }
+      .dhs-ai-message.user { align-self:flex-end; color:#111827; background:#fbbf24; }
+      .dhs-ai-message.assistant { align-self:flex-start; color:#e5e7eb; background:#1e293b; border:1px solid #334155; }
+      #dhs-ai-form { display:flex; gap:8px; padding:12px; border-top:1px solid #334155; background:#111827; }
+      #dhs-ai-input { min-width:0; flex:1; resize:none; border:1px solid #475569; border-radius:10px; padding:10px; background:#020617; color:#f8fafc; font-size:12px; outline:none; }
+      #dhs-ai-send { flex-shrink:0; border-radius:10px; padding:0 13px; background:#f59e0b; color:#111827; font-size:12px; font-weight:900; cursor:pointer; }
+      #dhs-ai-send:disabled { opacity:.55; cursor:wait; }
+      #dhs-ai-close { border:1px solid #475569; border-radius:8px; padding:4px 8px; color:#e2e8f0; background:#0f172a; cursor:pointer; }
+      @media (max-width:480px) { #dhs-ai-assistant { right:10px; bottom:10px; } #dhs-ai-window { width:calc(100vw - 20px); height:min(68vh,520px); } }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
@@ -242,7 +260,25 @@
         </div>
     </div>
 
-    <script>
+    
+    <div id="dhs-ai-assistant" aria-live="polite">
+      <section id="dhs-ai-window" aria-label="DHS AI assistant">
+        <header id="dhs-ai-header">
+          <div><div class="text-xs font-black text-amber-400">DHS AI ASSISTANT</div><div class="text-[10px] text-slate-400 mt-1">Help for your current portal role</div></div>
+          <button type="button" id="dhs-ai-close" aria-label="Close assistant">Close</button>
+        </header>
+        <div id="dhs-ai-log" role="log" aria-live="polite">
+          <div class="dhs-ai-message assistant">Hello! I can help you use the Daramombe High School portal. Ask me about dashboard features, school communication, teaching workflows, or invoice downloads.</div>
+        </div>
+        <form id="dhs-ai-form">
+          <textarea id="dhs-ai-input" rows="2" maxlength="2000" placeholder="Ask the DHS assistant..." aria-label="Message to DHS assistant" required></textarea>
+          <button id="dhs-ai-send" type="submit">Send</button>
+        </form>
+      </section>
+      <button type="button" id="dhs-ai-toggle"><span aria-hidden="true">✦</span> Ask DHS AI</button>
+    </div>
+
+<script>
         let sessionToken = '';
         const socket = io({ autoConnect: false, auth: { token: '' } });
         
@@ -751,6 +787,74 @@
             alert("Security Handshake Dropped: Live tracking stream disconnected by primary developer command matrix.");
             window.location.reload();
         });
+
+        // Floating AI assistant shared by all dashboard roles.
+        const dhsAiWindow = document.getElementById('dhs-ai-window');
+        const dhsAiLog = document.getElementById('dhs-ai-log');
+        const dhsAiInput = document.getElementById('dhs-ai-input');
+        const dhsAiForm = document.getElementById('dhs-ai-form');
+        const dhsAiSend = document.getElementById('dhs-ai-send');
+        const dhsAiMessages = [];
+        function setDhsAiOpen(open) {
+            dhsAiWindow.classList.toggle('open', open);
+            document.getElementById('dhs-ai-toggle').style.display = open ? 'none' : 'flex';
+            if (open) dhsAiInput.focus();
+        }
+        function addDhsAiMessage(role, content) {
+            const node = document.createElement('div');
+            node.className = 'dhs-ai-message ' + (role === 'user' ? 'user' : 'assistant');
+            node.textContent = content;
+            dhsAiLog.appendChild(node);
+            dhsAiLog.scrollTop = dhsAiLog.scrollHeight;
+        }
+        document.getElementById('dhs-ai-toggle').addEventListener('click', () => setDhsAiOpen(true));
+        document.getElementById('dhs-ai-close').addEventListener('click', () => setDhsAiOpen(false));
+        dhsAiForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const text = dhsAiInput.value.trim();
+            if (!text || dhsAiSend.disabled) return;
+            if (!sessionToken) {
+                addDhsAiMessage('assistant', 'You are viewing the read-only dashboard preview. Sign in with your Google account to use the live AI assistant. Preview mode contains sample data only.');
+                dhsAiInput.value = '';
+                return;
+            }
+            dhsAiMessages.push({ role: 'user', content: text });
+            addDhsAiMessage('user', text);
+            dhsAiInput.value = '';
+            dhsAiSend.disabled = true;
+            dhsAiSend.textContent = '...';
+            const waiting = document.createElement('div');
+            waiting.className = 'dhs-ai-message assistant';
+            waiting.textContent = 'Thinking...';
+            dhsAiLog.appendChild(waiting);
+            dhsAiLog.scrollTop = dhsAiLog.scrollHeight;
+            try {
+                const response = await fetch('/api/assistant/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sessionToken },
+                    body: JSON.stringify({ messages: dhsAiMessages.slice(-8) })
+                });
+                const result = await response.json().catch(() => ({}));
+                waiting.remove();
+                if (!response.ok || !result.success) throw new Error(result.message || 'The assistant is temporarily unavailable.');
+                dhsAiMessages.push({ role: 'assistant', content: result.answer });
+                addDhsAiMessage('assistant', result.answer);
+            } catch (error) {
+                waiting.remove();
+                addDhsAiMessage('assistant', error.message || 'The assistant is temporarily unavailable. Please try again.');
+            } finally {
+                dhsAiSend.disabled = false;
+                dhsAiSend.textContent = 'Send';
+                dhsAiInput.focus();
+            }
+        });
+        dhsAiInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                dhsAiForm.requestSubmit();
+            }
+        });
+
             initializePreviewMode();
     </script>
 </body>
