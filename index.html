@@ -218,7 +218,7 @@
                             <span class="text-[10px] uppercase font-bold text-emerald-300 border border-emerald-900 rounded px-2 py-1">Developer only</span>
                         </div>
                         <div class="rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-[11px] text-amber-100">
-                            Privacy notice: readable PDF text containing student details is sent to the AI provider configured on Render for extraction. After you confirm an import, each student's initial PIN and basic portal access details are sent individually to the extracted parent email (SMTP) or, if email is unavailable, parent phone (eSMS Africa SMS). Verify every contact against school records first. Notifications remain disabled until PARENT_NOTIFICATIONS_ENABLED=true and a delivery provider is configured in Render. The PDF itself is processed in memory and is not saved by this feature. Scanned/image-only PDFs require OCR first.
+                            Privacy notice: readable PDF text containing student details is sent to the AI provider configured on Render for extraction. After you confirm an import, each student's initial PIN and basic portal access details are sent individually by email only (SMTP) to the extracted parent email. Verify every email address against school records first. Notifications remain disabled until PARENT_NOTIFICATIONS_ENABLED=true and SMTP email is configured in Render. Records without a valid email address, or when email delivery fails, are not sent by another channel. The PDF itself is processed in memory and is not saved by this feature. Scanned/image-only PDFs require OCR first.
                         </div>
                         <form id="dev-student-pdf-form" class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                             <input id="dev-student-pdf-file" type="file" accept="application/pdf,.pdf" required class="min-w-0 flex-1 text-xs text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white">
@@ -864,11 +864,11 @@
                     setTimeout(() => pollParentNotificationJob(jobId), 2500);
                     return;
                 }
-                const summary = result.summary || { total: 0, sent: 0, failed: 0, emailSent: 0, smsSent: 0 };
+                const summary = result.summary || { total: 0, sent: 0, failed: 0, emailSent: 0 };
                 oneTimeImportPins = Array.isArray(result.failedPins) ? result.failedPins : [];
                 studentPdfDownloadPins.classList.toggle('hidden', oneTimeImportPins.length === 0);
                 studentPdfStatus.textContent = 'Parent notifications complete. Sent: ' + summary.sent + '/' + summary.total +
-                    ' (email: ' + summary.emailSent + ', SMS: ' + summary.smsSent + '); failed: ' + summary.failed +
+                    ' (email: ' + summary.emailSent + '); failed: ' + summary.failed +
                     '. ' + (summary.failed ? 'Download the secure fallback PIN CSV and contact those families privately.' : 'No fallback PIN export is needed.');
                 const results = Array.isArray(result.results) ? result.results : [];
                 if (results.some(item => !item.sent)) {
