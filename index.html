@@ -200,6 +200,12 @@
                                 </select>
                                 <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 font-bold text-slate-950 py-1 rounded text-[11px] uppercase">Commit Faculty Node</button>
                             </form>
+                            <form id="dev-dosa-pin-form" class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
+                                <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Provision DOSA member</div>
+                                <input type="text" id="dev-dosa-name" placeholder="Exact registered DOSA name" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="password" id="dev-dosa-pin" minlength="8" maxlength="32" placeholder="DOSA PIN (8+ characters)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 font-bold text-slate-950 py-1 rounded text-[11px] uppercase">Set DOSA PIN</button>
+                            </form>
                         </div>
                     </div>
 
@@ -736,6 +742,16 @@
             if (!response.ok || !data.success) throw new Error(data.message || 'PIN update failed.');
             alert(data.message || 'PIN updated successfully.');
         }
+        document.getElementById('dev-dosa-pin-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                await submitPinProvision('/api/developer/dosa-pin', {
+                    name: document.getElementById('dev-dosa-name').value.trim(),
+                    pin: document.getElementById('dev-dosa-pin').value
+                });
+                event.target.reset();
+            } catch (error) { alert(error.message); }
+        });
         document.getElementById('dev-student-pin-form').addEventListener('submit', async (event) => {
             event.preventDefault();
             try {
