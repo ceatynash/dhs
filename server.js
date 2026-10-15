@@ -618,8 +618,7 @@ app.post('/api/developer/student-import/preview', requireAuth, requireDeveloper,
 function parentNotificationConfig() {
     const enabled = String(process.env.PARENT_NOTIFICATIONS_ENABLED || '').toLowerCase() === 'true';
     const smtpReady = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM);
-    const smsGatewayReady = !!(process.env.ESMS_AFRICA_API_KEY && process.env.ESMS_AFRICA_SENDER_ID);
-    return { enabled, smtpReady, smsGatewayReady };
+    return { enabled, smtpReady };
 }
 let parentMailTransport = null;
 function getParentMailTransport() {
@@ -642,68 +641,27 @@ async function sendParentCredentialNotification(student) {
     const cfg = parentNotificationConfig();
     if (!cfg.enabled) return { sent: false, method: '', reason: 'Parent notifications are disabled in Render settings.' };
     const email = String(student.parentEmail || '').trim();
-    let phone = String(student.parentPhone || '').replace(/[^\d+]/g, '');
-    if (/^0\d{9}$/.test(phone)) phone = '+263' + phone.slice(1);
-    else if (/^263\d{9}$/.test(phone)) phone = '+' + phone;
-    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    const validPhone = /^\+[1-9]\d{7,14}$/.test(phone);
-    if (validEmail && cfg.smtpReady) {
-        const text = [
-            'Dear Parent/Guardian,', '',
-            'Daramombe High School has created portal access for your child.',
-            'Student name: ' + student.name,
-            'DHS student ID: ' + student.schoolId,
-            'Class: ' + student.studentClass,
-            'Initial private PIN: ' + student.pin, '',
-            'Sign in at ' + (process.env.DHS_PORTAL_URL || 'https://e-report-pgrn.onrender.com/'),
-            'Keep this PIN confidential. Do not forward this message or share the PIN in a group.',
-            'If you believe this message reached you in error, contact the school through its official office.',
-            '', 'Daramombe High School'
-        ].join('\n');
-        await getParentMailTransport().sendMail({
-            from: process.env.SMTP_FROM, to: email,
-            subject: 'Private DHS student portal access details', text,
-            headers: { 'X-Auto-Response-Suppress': 'All' }
-        });
-        return { sent: true, method: 'email', reason: '' };
-    }
-    if (validPhone && cfg.smsGatewayReady) {
-        const body = [
-            'Daramombe High School private portal access',
-            'Student: ' + student.name,
-            'DHS ID: ' + student.schoolId,
-            'Class: ' + student.studentClass,
-            'Initial PIN: ' + student.pin,
-            'Sign in: ' + (process.env.DHS_PORTAL_URL || 'https://e-report-pgrn.onrender.com/'),
-            'Keep this PIN private. Contact the school office if this was sent in error.'
-        ].join('\\n');
-        // eSMS Africa Zimbabwe API; the bearer token stays in Render environment variables.
-        const smsTo = phone.replace(/[^\\d]/g, '');
-        const response = await fetch('https://api.esmsafrica.io/v1/sms/send', {
-            method: 'POST',
-            headers: {
-                Authorization: 'Bearer ' + process.env.ESMS_AFRICA_API_KEY,
-                'Content-Type': 'application/json',
-                Accept: 'application/json'
-            },
-            body: JSON.stringify({
-                to: smsTo,
-                from: String(process.env.ESMS_AFRICA_SENDER_ID).trim(),
-                message: body
-            }),
-            signal: AbortSignal.timeout(20000)
-        });
-        const payload = await response.json().catch(() => ({}));
-        const accepted = response.ok && !!(payload.data && (payload.data.id || /^(queued|accepted|sent)$/i.test(String(payload.data.status || ''))));
-        if (!accepted) {
-            console.error('DHS SMS gateway rejected delivery:', response.status, String(payload.error && (payload.error.code || payload.error.type) || payload.message || 'provider rejection').slice(0, 120));
-            throw new Error('SMS gateway did not accept the message.');
-        }
-        return { sent: true, method: 'sms', reason: 'Accepted by SMS gateway; final delivery depends on the mobile network.' };
-    }
-    if (!validEmail && !validPhone) return { sent: false, method: '', reason: 'No valid parent email or international-format phone number is available.' };
-    if (validEmail && !cfg.smtpReady && (!validPhone || !cfg.smsGatewayReady)) return { sent: false, method: '', reason: 'Email delivery is not configured; SMS delivery is unavailable or the phone number is not in international format.' };
-    return { sent: false, method: '', reason: 'No configured delivery channel matches the available parent contact.' };
+    const validEmail = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
+    if (!validEmail) return { sent: false, method: '', reason: 'No valid parent email address is available.' };
+    if (!cfg.smtpReady) return { sent: false, method: '', reason: 'Email delivery is not configured in Render settings.' };
+    const text = [
+        'Dear Parent/Guardian,', '',
+        'Daramombe High School has created portal access for your child.',
+        'Student name: ' + student.name,
+        'DHS student ID: ' + student.schoolId,
+        'Class: ' + student.studentClass,
+        'Initial private PIN: ' + student.pin, '',
+        'Sign in at ' + (process.env.DHS_PORTAL_URL || 'https://e-report-pgrn.onrender.com/'),
+        'Keep this PIN confidential. Do not forward this message or share the PIN in a group.',
+        'If you believe this message reached you in error, contact the school through its official office.',
+        '', 'Daramombe High School'
+    ].join('\\n');
+    await getParentMailTransport().sendMail({
+        from: process.env.SMTP_FROM, to: email,
+        subject: 'Private DHS student portal access details', text,
+        headers: { 'X-Auto-Response-Suppress': 'All' }
+    });
+    return { sent: true, method: 'email', reason: '' };
 }
 async function runParentNotificationJob(jobId) {
     const job = parentNotificationJobs.get(jobId);
@@ -726,8 +684,7 @@ async function runParentNotificationJob(jobId) {
     job.failedPins = job.items.filter(item => !item.delivery.sent).map(item => ({ name: item.name, schoolId: item.schoolId, pin: item.pin }));
     job.summary = {
         total: job.items.length, sent: job.items.filter(item => item.delivery.sent).length,
-        failed: job.failedPins.length, emailSent: job.items.filter(item => item.delivery.method === 'email').length,
-        smsSent: job.items.filter(item => item.delivery.method === 'sms').length
+        failed: job.failedPins.length, emailSent: job.items.filter(item => item.delivery.method === 'email').length
     };
     job.items = job.items.map(item => ({ name: item.name, schoolId: item.schoolId, sent: !!item.delivery.sent, method: item.delivery.method || '', reason: item.delivery.reason || '' }));
     for (const [key, value] of parentNotificationJobs) if (value.completedAt && Date.now() - value.completedAt > 30 * 60 * 1000) parentNotificationJobs.delete(key);
@@ -783,7 +740,7 @@ app.post('/api/developer/student-import/commit', requireAuth, requireDeveloper, 
         if (current) {
             current.completed = true; current.completedAt = Date.now();
             current.failedPins = current.items.map(item => ({ name: item.name, schoolId: item.schoolId, pin: item.pin }));
-            current.summary = { total: current.items.length, sent: 0, failed: current.items.length, emailSent: 0, smsSent: 0 };
+            current.summary = { total: current.items.length, sent: 0, failed: current.items.length, emailSent: 0 };
             current.items = current.items.map(item => ({ name: item.name, schoolId: item.schoolId, sent: false, method: '', reason: 'Notification worker failed; use the secure fallback PIN export.' }));
         }
     }));
@@ -791,7 +748,7 @@ app.post('/api/developer/student-import/commit', requireAuth, requireDeveloper, 
     return res.json({
         success: true, importedCount: importedPins.length, skippedCount: skipped.length,
         skipped, notificationJobId: jobId,
-        notificationEnabled: config.enabled && (config.smtpReady || config.smsGatewayReady),
+        notificationEnabled: config.enabled && config.smtpReady,
         message: 'New student records saved. Private parent notifications have been queued. Check delivery status before closing the dashboard.'
     });
 });
@@ -805,7 +762,7 @@ app.get('/api/developer/student-import/notifications/:jobId', requireAuth, requi
         success: true, completed: job.completed, summary: job.summary,
         results: job.items.map(item => ({ name: item.name, schoolId: item.schoolId, sent: !!item.sent, method: item.method || '', reason: item.reason || '' })),
         failedPins: job.completed ? job.failedPins : [],
-        deliveryConfigured: cfg.enabled && (cfg.smtpReady || cfg.smsGatewayReady)
+        deliveryConfigured: cfg.enabled && cfg.smtpReady
     });
 });
 
