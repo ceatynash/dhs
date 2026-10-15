@@ -30,7 +30,7 @@ function createSession(email, role, dosaName) {
     return token;
 }
 function getSession(req) {
-    const token = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '') || req.headers['x-session-token'];
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-session-token'];
     const session = token && sessions.get(token);
     if (!session || session.expires < Date.now()) { if (token) sessions.delete(token); return null; }
     return session;
