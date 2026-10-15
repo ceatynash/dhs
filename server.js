@@ -618,8 +618,8 @@ app.post('/api/developer/student-import/preview', requireAuth, requireDeveloper,
 function parentNotificationConfig() {
     const enabled = String(process.env.PARENT_NOTIFICATIONS_ENABLED || '').toLowerCase() === 'true';
     const smtpReady = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM);
-    const twilioReady = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
-    return { enabled, smtpReady, twilioReady };
+    const smsGatewayReady = !!(process.env.ESMS_AFRICA_API_KEY && process.env.ESMS_AFRICA_SENDER_ID);
+    return { enabled, smtpReady, smsGatewayReady };
 }
 let parentMailTransport = null;
 function getParentMailTransport() {
@@ -667,7 +667,7 @@ async function sendParentCredentialNotification(student) {
         });
         return { sent: true, method: 'email', reason: '' };
     }
-    if (validPhone && cfg.twilioReady) {
+    if (validPhone && cfg.smsGatewayReady) {
         const body = [
             'Daramombe High School private portal access',
             'Student: ' + student.name,
@@ -676,23 +676,33 @@ async function sendParentCredentialNotification(student) {
             'Initial PIN: ' + student.pin,
             'Sign in: ' + (process.env.DHS_PORTAL_URL || 'https://e-report-pgrn.onrender.com/'),
             'Keep this PIN private. Contact the school office if this was sent in error.'
-        ].join('\n');
-        const sid = process.env.TWILIO_ACCOUNT_SID;
-        const form = new URLSearchParams({ To: phone, From: process.env.TWILIO_FROM_NUMBER, Body: body });
-        const auth = Buffer.from(sid + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
-        const response = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + encodeURIComponent(sid) + '/Messages.json', {
+        ].join('\\n');
+        // eSMS Africa Zimbabwe API; the bearer token stays in Render environment variables.
+        const smsTo = phone.replace(/[^\\d]/g, '');
+        const response = await fetch('https://api.esmsafrica.io/v1/sms/send', {
             method: 'POST',
-            headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: form.toString(), signal: AbortSignal.timeout(20000)
+            headers: {
+                Authorization: 'Bearer ' + process.env.ESMS_AFRICA_API_KEY,
+                'Content-Type': 'application/json',
+                Accept: 'application/json'
+            },
+            body: JSON.stringify({
+                to: smsTo,
+                from: String(process.env.ESMS_AFRICA_SENDER_ID).trim(),
+                message: body
+            }),
+            signal: AbortSignal.timeout(20000)
         });
-        if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            throw new Error('SMS provider rejected delivery (' + response.status + (payload.code ? ', code ' + payload.code : '') + ').');
+        const payload = await response.json().catch(() => ({}));
+        const accepted = response.ok && !!(payload.data && (payload.data.id || /^(queued|accepted|sent)$/i.test(String(payload.data.status || ''))));
+        if (!accepted) {
+            console.error('DHS SMS gateway rejected delivery:', response.status, String(payload.error && (payload.error.code || payload.error.type) || payload.message || 'provider rejection').slice(0, 120));
+            throw new Error('SMS gateway did not accept the message.');
         }
-        return { sent: true, method: 'sms', reason: '' };
+        return { sent: true, method: 'sms', reason: 'Accepted by SMS gateway; final delivery depends on the mobile network.' };
     }
     if (!validEmail && !validPhone) return { sent: false, method: '', reason: 'No valid parent email or international-format phone number is available.' };
-    if (validEmail && !cfg.smtpReady && (!validPhone || !cfg.twilioReady)) return { sent: false, method: '', reason: 'Email delivery is not configured; SMS delivery is unavailable or the phone number is not in international format.' };
+    if (validEmail && !cfg.smtpReady && (!validPhone || !cfg.smsGatewayReady)) return { sent: false, method: '', reason: 'Email delivery is not configured; SMS delivery is unavailable or the phone number is not in international format.' };
     return { sent: false, method: '', reason: 'No configured delivery channel matches the available parent contact.' };
 }
 async function runParentNotificationJob(jobId) {
@@ -781,7 +791,7 @@ app.post('/api/developer/student-import/commit', requireAuth, requireDeveloper, 
     return res.json({
         success: true, importedCount: importedPins.length, skippedCount: skipped.length,
         skipped, notificationJobId: jobId,
-        notificationEnabled: config.enabled && (config.smtpReady || config.twilioReady),
+        notificationEnabled: config.enabled && (config.smtpReady || config.smsGatewayReady),
         message: 'New student records saved. Private parent notifications have been queued. Check delivery status before closing the dashboard.'
     });
 });
@@ -795,7 +805,7 @@ app.get('/api/developer/student-import/notifications/:jobId', requireAuth, requi
         success: true, completed: job.completed, summary: job.summary,
         results: job.items.map(item => ({ name: item.name, schoolId: item.schoolId, sent: !!item.sent, method: item.method || '', reason: item.reason || '' })),
         failedPins: job.completed ? job.failedPins : [],
-        deliveryConfigured: cfg.enabled && (cfg.smtpReady || cfg.twilioReady)
+        deliveryConfigured: cfg.enabled && (cfg.smtpReady || cfg.smsGatewayReady)
     });
 });
 
