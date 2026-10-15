@@ -193,6 +193,9 @@ app.put('/api/head/students/:studentId/invoice', requireAuth, (req, res) => {
     const amountPaid = Number(body.amountPaid ?? 0);
     const rawItems = Array.isArray(body.items) ? body.items : [];
     if (!studentName || !schoolId || !studentClass || !term) return res.status(400).json({ success: false, message: 'Student name, school ID, class and term are required.' });
+    if (studentName !== String(student.name || '').trim() || schoolId.toUpperCase() !== String(student.schoolId || '').toUpperCase()) {
+        return res.status(400).json({ success: false, message: 'A fee invoice cannot change a student’s registered name or DHS ID. Update the official student record separately.' });
+    }
     if (!['USD', 'ZWL', 'ZWG', 'ZAR', 'GBP'].includes(currency)) return res.status(400).json({ success: false, message: 'Choose a supported invoice currency.' });
     if (!Number.isFinite(amountPaid) || amountPaid < 0 || amountPaid > 1000000000) return res.status(400).json({ success: false, message: 'Amount paid must be a valid non-negative number.' });
     if (rawItems.length < 1 || rawItems.length > 30) return res.status(400).json({ success: false, message: 'Enter between 1 and 30 fee items.' });
@@ -205,7 +208,7 @@ app.put('/api/head/students/:studentId/invoice', requireAuth, (req, res) => {
     }
     if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return res.status(400).json({ success: false, message: 'Due date must use YYYY-MM-DD format.' });
     // Preserve the parent email linkage and internal student ID.
-    student.name = studentName; student.schoolId = schoolId; student.class = studentClass;
+    student.class = studentClass;
     const totalAmount = Math.round(items.reduce((sum, item) => sum + item.amount, 0) * 100) / 100;
     student.invoice = {
         invoiceNumber: 'DHS-' + String(schoolId).replace(/[^a-zA-Z0-9_-]/g, '-') + '-' + term.replace(/[^a-zA-Z0-9_-]/g, '-'),
