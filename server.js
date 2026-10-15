@@ -24,11 +24,31 @@ const DOSA_FILE = path.join(__dirname, 'dosa_members.json');
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
 const sessions = new Map();
 
-function createSession(email, role, dosaName) {
+function createSession(identity) {
     const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { email, role, dosaName, expires: Date.now() + 8 * 60 * 60 * 1000 });
+    sessions.set(token, {
+        email: identity.email || identity.name, name: identity.name || '',
+        role: identity.role, schoolId: identity.schoolId || '',
+        dosaName: identity.dosaName || '', expires: Date.now() + 8 * 60 * 60 * 1000
+    });
     return token;
 }
+const loginAttempts = new Map();
+function pinMatches(pin, record) {
+    if (!record || !record.pinSalt || !record.pinHash || typeof pin !== 'string') return false;
+    const actual = crypto.scryptSync(pin, record.pinSalt, 64);
+    const expected = Buffer.from(record.pinHash, 'hex');
+    return expected.length === actual.length && crypto.timingSafeEqual(actual, expected);
+}
+function hashPin(pin) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    return { pinSalt: salt, pinHash: crypto.scryptSync(pin, salt, 64).toString('hex') };
+}
+function safeEqualText(a, b) {
+    const left = Buffer.from(String(a || '')), right = Buffer.from(String(b || ''));
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+function validPin(pin) { return typeof pin === 'string' && /^[0-9A-Za-z]{8,32}$/.test(pin); }
 function getSession(req) {
     const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-session-token'];
     const session = token && sessions.get(token);
@@ -90,9 +110,9 @@ function emitStudentLedger(records) {
     for (const client of io.sockets.sockets.values()) {
         const user = client.sessionUser;
         if (!user) continue;
-        if (user.role === 'Parent') {
-            client.emit('ledger_sync_update', records.filter(s => (s.parentEmail || '').toLowerCase() === user.email));
-        } else if (user.role !== 'DOSA') {
+        if (user.role === 'Parent' || user.role === 'Student') {
+            client.emit('ledger_sync_update', records.filter(s => String(s.schoolId || '').toUpperCase() === String(user.schoolId || '').toUpperCase()));
+        } else if (['Teacher', 'Head/Deputy', 'Developer'].includes(user.role)) {
             client.emit('ledger_sync_update', records);
         }
     }
@@ -105,12 +125,13 @@ app.get('/', (req, res) => {
 
 app.get('/api/students', requireAuth, (req, res) => {
     const records = readDatabase();
-    if (req.sessionUser.role === 'Parent') {
-        return res.json(records.filter(student =>
-            (student.parentEmail || '').toLowerCase().trim() === req.sessionUser.email
-        ));
+    if (req.sessionUser.role === 'Parent' || req.sessionUser.role === 'Student') {
+        return res.json(records.filter(student => String(student.schoolId || '').toUpperCase() === String(req.sessionUser.schoolId || '').toUpperCase()).map(({ pinSalt, pinHash, ...student }) => student));
     }
-    if (req.sessionUser.role === 'DOSA' || ['Teacher', 'Head/Deputy', 'Developer'].includes(req.sessionUser.role)) return res.json(records);
+    if (req.sessionUser.role === 'DOSA') return res.json([]);
+    if (['Teacher', 'Head/Deputy', 'Developer'].includes(req.sessionUser.role)) {
+        return res.json(records.map(({ pinSalt, pinHash, ...student }) => student));
+    }
     return res.status(403).json({ success: false, message: 'Student records access denied.' });
 });
 app.get('/api/staff', requireAuth, requireDeveloper, (req, res) => res.json(readStaffDatabase()));
@@ -198,12 +219,12 @@ app.put('/api/head/students/:studentId/invoice', requireAuth, (req, res) => {
 
 app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) => {
     // Invoices are strictly parent-only and scoped to a child linked to the signed-in email.
-    if (req.sessionUser.role !== 'Parent') {
-        return res.status(403).json({ success: false, message: 'Parent access is required to download a child invoice.' });
+    if (!['Parent', 'Student'].includes(req.sessionUser.role)) {
+        return res.status(403).json({ success: false, message: 'Student or parent access is required to download this invoice.' });
     }
     const student = readDatabase().find(item =>
         String(item.id) === String(req.params.studentId) &&
-        (item.parentEmail || '').toLowerCase().trim() === req.sessionUser.email
+        String(item.schoolId || '').toUpperCase() === String(req.sessionUser.schoolId || '').toUpperCase()
     );
     if (!student) return res.status(404).json({ success: false, message: 'The linked student record was not found.' });
 
@@ -346,85 +367,85 @@ app.get('/api/developer/tracked-dosa', requireAuth, requireDeveloper, (req, res)
     res.json(Object.values(activeDosaSessions));
 });
 
-// Google Sign-In authentication. The server verifies the Google ID token and derives role only from server-side allowlists.
-app.get('/api/auth/config', (_req, res) => {
-    if (!GOOGLE_CLIENT_ID) return res.status(503).json({ success: false, message: 'Google Sign-In is not configured on this server.' });
+// Independent DHS authentication. Roles and record ownership are resolved server-side.
+app.post('/api/auth/login', (req, res) => {
+    const body = req.body || {};
+    const role = String(body.role || '');
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const schoolId = typeof body.schoolId === 'string' ? body.schoolId.trim() : '';
+    const pin = typeof body.pin === 'string' ? body.pin : '';
+    const ip = String(req.ip || req.socket.remoteAddress || 'unknown');
+    const now = Date.now();
+    const attempts = (loginAttempts.get(ip) || []).filter(time => now - time < 15 * 60 * 1000);
+    if (attempts.length >= 12) {
+        res.set('Retry-After', '900');
+        return res.status(429).json({ success: false, message: 'Too many sign-in attempts. Wait 15 minutes and try again.' });
+    }
+    attempts.push(now); loginAttempts.set(ip, attempts);
     res.set('Cache-Control', 'no-store');
-    res.json({ clientId: GOOGLE_CLIENT_ID });
+    if (!['Student', 'Parent', 'Teacher', 'Head/Deputy', 'DOSA', 'Developer'].includes(role) || !name || name.length > 120 || !validPin(pin)) {
+        return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
+    }
+    let identity = null;
+    if (role === 'Student' || role === 'Parent') {
+        const student = readDatabase().find(item => String(item.schoolId || '').toUpperCase() === schoolId.toUpperCase() && String(item.name || '').trim() === name && pinMatches(pin, item));
+        if (student) identity = { name: student.name, email: student.schoolId, schoolId: student.schoolId, role };
+    } else if (role === 'Teacher' || role === 'Head/Deputy') {
+        const staff = readStaffDatabase().find(item => String(item.name || '').trim() === name && item.role === role && pinMatches(pin, item));
+        if (staff) identity = { name: staff.name, email: staff.email || staff.name, role: staff.role };
+    } else if (role === 'Developer') {
+        const configuredName = String(process.env.DHS_DEVELOPER_NAME || '').trim();
+        const configuredPin = String(process.env.DHS_DEVELOPER_PIN || '');
+        if (configuredName && configuredPin && name === configuredName && safeEqualText(pin, configuredPin)) identity = { name: configuredName, email: 'developer:' + configuredName, role: 'Developer' };
+    } else if (role === 'DOSA') {
+        let members = [];
+        try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) {}
+        const member = members.find(item => String(item.name || item.dosaName || '').trim() === name && pinMatches(pin, item));
+        if (member) identity = { name, email: member.email || name, role: 'DOSA', dosaName: name };
+    }
+    if (!identity) return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
+    loginAttempts.delete(ip);
+    const token = createSession(identity);
+    return res.json({ success: true, name: identity.name, email: identity.email, role: identity.role, schoolId: identity.schoolId || '', dosaName: identity.dosaName || '', token });
 });
 
-async function verifyGoogleIdToken(idToken) {
-    if (!GOOGLE_CLIENT_ID) throw new Error('Google Sign-In is not configured.');
-    if (typeof idToken !== 'string' || idToken.length < 20 || idToken.length > 10000) throw new Error('Missing or invalid Google credential.');
-    const response = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), {
-        headers: { Accept: 'application/json' }
-    });
-    if (!response.ok) throw new Error('Google rejected this sign-in token.');
-    const claims = await response.json();
-    const issuerOk = claims.iss === 'accounts.google.com' || claims.iss === 'https://accounts.google.com';
-    if (!issuerOk || claims.aud !== GOOGLE_CLIENT_ID || Number(claims.exp) * 1000 <= Date.now() ||
-        !(claims.email_verified === true || claims.email_verified === 'true') || !claims.email) {
-        throw new Error('Google account verification failed. Please sign in again.');
-    }
-    return { email: claims.email.toLowerCase().trim() };
-}
+app.post('/api/developer/student-pin', requireAuth, requireDeveloper, (req, res) => {
+    const schoolId = String(req.body && req.body.schoolId || '').trim();
+    const name = String(req.body && req.body.name || '').trim();
+    const pin = String(req.body && req.body.pin || '');
+    if (!schoolId || !name || !validPin(pin)) return res.status(400).json({ success: false, message: 'Enter exact student name, DHS ID, and an 8–32 character PIN.' });
+    const records = readDatabase();
+    const student = records.find(item => String(item.schoolId || '').toUpperCase() === schoolId.toUpperCase() && String(item.name || '').trim() === name);
+    if (!student) return res.status(404).json({ success: false, message: 'No student matches that exact name and DHS ID.' });
+    Object.assign(student, hashPin(pin)); writeDatabase(records);
+    return res.json({ success: true, message: 'Student/parent PIN updated. Give it privately to the verified family.' });
+});
 
-app.post('/api/auth/google', async (req, res) => {
-    try {
-        const { credential, role } = req.body || {};
-        if (!['Developer', 'Teacher', 'Head/Deputy', 'Parent', 'DOSA'].includes(role)) {
-            return res.status(400).json({ success: false, message: 'Choose a valid portal role.' });
-        }
-        const identity = await verifyGoogleIdToken(credential);
-        const cleanEmail = identity.email;
-        let dosaName = '';
-
-        if (role === 'Developer') {
-            if (!DEVELOPER_EMAIL || cleanEmail !== DEVELOPER_EMAIL) {
-                return res.status(403).json({ success: false, message: 'This Google account is not the configured portal developer.' });
-            }
-        } else if (role === 'Teacher' || role === 'Head/Deputy') {
-            const staff = readStaffDatabase().find(item =>
-                (item.email || '').toLowerCase().trim() === cleanEmail && item.role === role
-            );
-            if (!staff) return res.status(403).json({ success: false, message: 'This Google account is not registered for the selected staff role.' });
-        } else if (role === 'Parent') {
-            const linked = readDatabase().some(student =>
-                (student.parentEmail || '').toLowerCase().trim() === cleanEmail
-            );
-            if (!linked) return res.status(403).json({ success: false, message: 'No student record is linked to this Google account.' });
-        } else if (role === 'DOSA') {
-            let members = [];
-            try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) {}
-            const member = members.find(item => (item.email || '').toLowerCase().trim() === cleanEmail);
-            if (!member) return res.status(403).json({ success: false, message: 'This Google account is not registered for DOSA access.' });
-            dosaName = member.name || member.dosaName || 'Daramombe Old Students Association (DOSA)';
-        }
-
-        const sessionToken = createSession(cleanEmail, role, dosaName);
-        res.set('Cache-Control', 'no-store');
-        return res.json({ success: true, email: cleanEmail, role, dosaName, token: sessionToken });
-    } catch (err) {
-        console.error('Google Sign-In verification failed:', err.message);
-        return res.status(401).json({ success: false, message: err.message || 'Google Sign-In failed. Please try again.' });
-    }
+app.post('/api/developer/staff-pin', requireAuth, requireDeveloper, (req, res) => {
+    const name = String(req.body && req.body.name || '').trim();
+    const role = String(req.body && req.body.role || '');
+    const pin = String(req.body && req.body.pin || '');
+    if (!name || !['Teacher', 'Head/Deputy'].includes(role) || !validPin(pin)) return res.status(400).json({ success: false, message: 'Enter exact staff name, role, and an 8–32 character PIN.' });
+    const faculty = readStaffDatabase();
+    const staff = faculty.find(item => String(item.name || '').trim() === name && item.role === role);
+    if (!staff) return res.status(404).json({ success: false, message: 'No staff member matches that exact name and role.' });
+    Object.assign(staff, hashPin(pin)); writeStaffDatabase(faculty);
+    return res.json({ success: true, message: 'Staff PIN updated.' });
 });
 
 // Developer Matrix Infrastructure Operations
 app.post('/api/developer/add-student', requireAuth, requireDeveloper, (req, res) => {
-    const { name, schoolId, formClass, parentPhone, parentEmail } = req.body;
+    const { name, schoolId, formClass, parentPhone, parentEmail, pin } = req.body || {};
     const records = readDatabase();
-    
-    const duplicate = records.find(s => s.schoolId.toLowerCase() === schoolId.toLowerCase().trim());
-    if (duplicate) return res.status(400).json({ success: false, message: "Profile creation collision: ID matches established parameters." });
-
+    if (typeof name !== 'string' || !name.trim() || typeof schoolId !== 'string' || !/^DHS-[A-Z0-9-]{4,40}$/i.test(schoolId.trim()) || !validPin(String(pin || ''))) {
+        return res.status(400).json({ success: false, message: 'Enter a full name, valid DHS ID, and an 8–32 character initial PIN.' });
+    }
+    const duplicate = records.find(s => String(s.schoolId || '').toLowerCase() === schoolId.toLowerCase().trim());
+    if (duplicate) return res.status(400).json({ success: false, message: 'That DHS ID is already assigned.' });
     const targetNode = {
-        id: Date.now(),
-        name,
-        schoolId: schoolId.trim(),
-        class: formClass,
-        parentPhone,
-        parentEmail,
+        id: Date.now(), name: name.trim(), schoolId: schoolId.trim(),
+        class: String(formClass || '').trim(), parentPhone: String(parentPhone || '').trim(),
+        parentEmail: String(parentEmail || '').trim().toLowerCase(), ...hashPin(String(pin)),
         marks: { "Mathematics": 0, "English Language": 0, "Science": 0 }
     };
 
@@ -435,13 +456,14 @@ app.post('/api/developer/add-student', requireAuth, requireDeveloper, (req, res)
 });
 
 app.post('/api/developer/add-staff', requireAuth, requireDeveloper, (req, res) => {
-    const { name, email, role } = req.body;
+    const { name, email, role, pin } = req.body || {};
     const faculty = readStaffDatabase();
-
-    const collisionCheck = faculty.find(f => f.email.toLowerCase() === email.toLowerCase().trim());
-    if (collisionCheck) return res.status(400).json({ success: false, message: "Faculty records overlap error." });
-
-    const targetStaff = { id: Date.now(), name, email: email.trim().toLowerCase(), role };
+    if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !email.trim() || !['Teacher', 'Head/Deputy'].includes(role) || !validPin(String(pin || ''))) {
+        return res.status(400).json({ success: false, message: 'Enter a staff name, email, valid role, and 8–32 character initial PIN.' });
+    }
+    const collisionCheck = faculty.find(f => String(f.email || '').toLowerCase() === email.toLowerCase().trim());
+    if (collisionCheck) return res.status(400).json({ success: false, message: 'A staff account already uses that email.' });
+    const targetStaff = { id: Date.now(), name: name.trim(), email: email.trim().toLowerCase(), role, ...hashPin(String(pin)) };
     faculty.push(targetStaff);
     writeStaffDatabase(faculty);
     io.emit('staff_sync_update', faculty);
