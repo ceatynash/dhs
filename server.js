@@ -114,6 +114,115 @@ app.get('/api/students', requireAuth, (req, res) => {
     return res.status(403).json({ success: false, message: 'Student records access denied.' });
 });
 app.get('/api/staff', requireAuth, requireDeveloper, (req, res) => res.json(readStaffDatabase()));
+
+// Build a small dependency-free PDF invoice. Fee amounts are only shown when entered
+// in the student's invoice.items or fees records; the server never invents charges.
+function pdfSafeText(value) {
+    return String(value == null ? '' : value)
+        .normalize('NFKD')
+        .replace(/[^\x20-\x7E]/g, '')
+        .replace(/[()\\\\]/g, '\\\\app.get('/api/staff', requireAuth, requireDeveloper, (req, res) => res.json(readStaffDatabase()));')
+        .slice(0, 150);
+}
+
+function createInvoicePdf(lines) {
+    const commands = [
+        'BT',
+        '/F1 18 Tf',
+        '50 790 Td',
+        '(' + pdfSafeText(lines[0] || 'Daramombe High School Invoice') + ') Tj',
+        '/F1 10 Tf',
+        ...lines.slice(1).flatMap(line => ['0 -22 Td', '(' + pdfSafeText(line) + ') Tj']),
+        'ET'
+    ].join('\n');
+    const objects = [
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        '<< /Length ' + Buffer.byteLength(commands, 'binary') + ' >>\nstream\n' + commands + '\nendstream'
+    ];
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    for (let i = 0; i < objects.length; i++) {
+        offsets.push(Buffer.byteLength(pdf, 'binary'));
+        pdf += (i + 1) + ' 0 obj\n' + objects[i] + '\nendobj\n';
+    }
+    const xrefOffset = Buffer.byteLength(pdf, 'binary');
+    pdf += 'xref\n0 ' + (objects.length + 1) + '\n0000000000 65535 f \n';
+    for (let i = 1; i < offsets.length; i++) pdf += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+    pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF';
+    return Buffer.from(pdf, 'binary');
+}
+
+app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) => {
+    // Invoices are strictly parent-only and scoped to a child linked to the signed-in email.
+    if (req.sessionUser.role !== 'Parent') {
+        return res.status(403).json({ success: false, message: 'Parent access is required to download a child invoice.' });
+    }
+    const student = readDatabase().find(item =>
+        String(item.id) === String(req.params.studentId) &&
+        (item.parentEmail || '').toLowerCase().trim() === req.sessionUser.email
+    );
+    if (!student) return res.status(404).json({ success: false, message: 'The linked student record was not found.' });
+
+    const invoice = student.invoice && typeof student.invoice === 'object' ? student.invoice : {};
+    const rawItems = Array.isArray(invoice.items) ? invoice.items : (Array.isArray(student.fees) ? student.fees : []);
+    const items = rawItems.map(item => ({
+        description: String(item && (item.description || item.name) || 'School fee').slice(0, 120),
+        amount: Number(item && item.amount)
+    })).filter(item => Number.isFinite(item.amount) && item.amount >= 0);
+    const currency = String(invoice.currency || student.feeCurrency || 'USD').slice(0, 8);
+    const amountPaidValue = Number(invoice.amountPaid ?? student.amountPaid ?? 0);
+    const amountPaid = Number.isFinite(amountPaidValue) && amountPaidValue >= 0 ? amountPaidValue : 0;
+    const explicitTotal = Number(invoice.totalAmount);
+    const total = Number.isFinite(explicitTotal) && explicitTotal >= 0
+        ? explicitTotal
+        : items.reduce((sum, item) => sum + item.amount, 0);
+    const hasFinancialData = items.length > 0 || (Number.isFinite(explicitTotal) && explicitTotal >= 0);
+    const balanceValue = Number(invoice.balanceDue);
+    const balance = Number.isFinite(balanceValue) && balanceValue >= 0
+        ? balanceValue
+        : Math.max(0, total - amountPaid);
+    const issued = new Date().toISOString().slice(0, 10);
+    const reference = invoice.invoiceNumber || ('DHS-' + String(student.schoolId || student.id) + '-' + issued.replace(/-/g, ''));
+    const lines = [
+        'DARAMOMBE HIGH SCHOOL',
+        'PARENT FEE INVOICE',
+        'Invoice reference: ' + reference,
+        'Issue date: ' + issued,
+        'Student: ' + (student.name || 'Not recorded'),
+        'School ID: ' + (student.schoolId || 'Not recorded'),
+        'Class: ' + (student.class || 'Not recorded'),
+        'Parent account: ' + req.sessionUser.email,
+        '-----------------------------------------------'
+    ];
+    if (items.length) {
+        items.slice(0, 18).forEach(item => lines.push(item.description + ' - ' + currency + ' ' + item.amount.toFixed(2)));
+    } else {
+        lines.push('No itemised fee schedule has been entered for this student.');
+    }
+    lines.push('-----------------------------------------------');
+    if (hasFinancialData) {
+        lines.push('Total fees: ' + currency + ' ' + total.toFixed(2));
+        lines.push('Amount paid: ' + currency + ' ' + amountPaid.toFixed(2));
+        lines.push('Balance due: ' + currency + ' ' + balance.toFixed(2));
+    } else {
+        lines.push('Total fees: Not configured');
+        lines.push('Balance due: Not available - confirm with the school finance office.');
+    }
+    lines.push('This document reflects the fee data currently recorded by the school.');
+    if (!hasFinancialData) lines.push('It is not a statement of an assessed amount payable.');
+    const pdf = createInvoicePdf(lines);
+    const safeName = String(student.schoolId || student.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename="DHS-Invoice-' + safeName + '.pdf"',
+        'Cache-Control': 'no-store'
+    });
+    return res.send(pdf);
+});
+
 app.get('/api/messages', requireAuth, (req, res) => res.json(systemAnnouncements));
 app.get('/api/sponsors', requireAuth, (req, res) => res.json(systemSponsors));
 
