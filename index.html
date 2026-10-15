@@ -886,7 +886,7 @@
             const selectedIndexes = Array.from(studentPdfRows.querySelectorAll('input[data-student-import-index]:checked'))
                 .map(checkbox => Number(checkbox.dataset.studentImportIndex));
             if (!selectedIndexes.length) { studentPdfStatus.textContent = 'Select at least one READY row to import.'; return; }
-            if (!confirm('Add ' + selectedIndexes.length + ' new student records? Existing records will not be overwritten.')) return;
+            if (!confirm('Before sending, have you verified every displayed parent contact against official school records and confirmed it belongs to the correct family? The system will send each selected student’s initial PIN to that contact. Add ' + selectedIndexes.length + ' new student records and queue private notifications? Existing records will not be overwritten.')) return;
             studentPdfCommit.disabled = true;
             studentPdfStatus.textContent = 'Validating selected rows and saving new records…';
             try {
