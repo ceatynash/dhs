@@ -422,6 +422,19 @@ app.post('/api/developer/student-pin', requireAuth, requireDeveloper, (req, res)
     return res.json({ success: true, message: 'Student/parent PIN updated. Give it privately to the verified family.' });
 });
 
+app.post('/api/developer/dosa-pin', requireAuth, requireDeveloper, (req, res) => {
+    const name = String(req.body && req.body.name || '').trim();
+    const pin = String(req.body && req.body.pin || '');
+    if (!name || !validPin(pin)) return res.status(400).json({ success: false, message: 'Enter the exact registered DOSA name and an 8–32 character PIN.' });
+    let members;
+    try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) { return res.status(500).json({ success: false, message: 'DOSA member records could not be read.' }); }
+    const member = members.find(item => String(item.name || item.dosaName || '').trim() === name);
+    if (!member) return res.status(404).json({ success: false, message: 'No DOSA member matches that exact registered name.' });
+    Object.assign(member, hashPin(pin));
+    fs.writeFileSync(DOSA_FILE, JSON.stringify(members, null, 2), 'utf8');
+    return res.json({ success: true, message: 'DOSA member PIN updated.' });
+});
+
 app.post('/api/developer/staff-pin', requireAuth, requireDeveloper, (req, res) => {
     const name = String(req.body && req.body.name || '').trim();
     const role = String(req.body && req.body.role || '');
