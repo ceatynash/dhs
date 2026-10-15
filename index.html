@@ -204,6 +204,26 @@
                     </div>
 
                     <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
+                        <h3 class="text-sm font-black uppercase text-amber-300 border-b border-slate-800 pb-2 tracking-wider">Issue or reset credentials for existing accounts</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <form id="dev-student-pin-form" class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
+                                <p class="text-xs font-bold text-slate-300">Student / parent PIN</p>
+                                <input id="pin-student-name" required maxlength="120" placeholder="Exact registered student name" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-2 text-xs">
+                                <input id="pin-student-id" required maxlength="60" placeholder="Unique DHS student ID" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-2 text-xs">
+                                <input id="pin-student-new" type="password" required minlength="8" maxlength="32" placeholder="New PIN (8–32 letters/numbers)" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-2 text-xs">
+                                <button class="w-full bg-amber-500 text-slate-950 font-bold py-2 rounded text-xs" type="submit">Set family PIN</button>
+                            </form>
+                            <form id="dev-staff-pin-form" class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
+                                <p class="text-xs font-bold text-slate-300">Existing staff PIN</p>
+                                <input id="pin-staff-name" required maxlength="120" placeholder="Exact registered staff name" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-2 text-xs">
+                                <select id="pin-staff-role" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-2 text-xs text-slate-200"><option value="Teacher">Teacher</option><option value="Head/Deputy">Head / Deputy</option></select>
+                                <input id="pin-staff-new" type="password" required minlength="8" maxlength="32" placeholder="New PIN (8–32 letters/numbers)" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-2 text-xs">
+                                <button class="w-full bg-indigo-500 text-slate-950 font-bold py-2 rounded text-xs" type="submit">Set staff PIN</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
                         <h3 class="text-sm font-black uppercase text-rose-400 border-b border-slate-800 pb-2 tracking-wider">Active System Record Deletion & Purge Tables</h3>
                         
                         <div class="space-y-4">
@@ -704,6 +724,39 @@
             } else {
                 alert(data.message);
             }
+        });
+
+        async function submitPinProvision(endpoint, body) {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sessionToken },
+                body: JSON.stringify(body)
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || 'PIN update failed.');
+            alert(data.message || 'PIN updated successfully.');
+        }
+        document.getElementById('dev-student-pin-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                await submitPinProvision('/api/developer/student-pin', {
+                    name: document.getElementById('pin-student-name').value.trim(),
+                    schoolId: document.getElementById('pin-student-id').value.trim(),
+                    pin: document.getElementById('pin-student-new').value
+                });
+                event.target.reset();
+            } catch (error) { alert(error.message); }
+        });
+        document.getElementById('dev-staff-pin-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                await submitPinProvision('/api/developer/staff-pin', {
+                    name: document.getElementById('pin-staff-name').value.trim(),
+                    role: document.getElementById('pin-staff-role').value,
+                    pin: document.getElementById('pin-staff-new').value
+                });
+                event.target.reset();
+            } catch (error) { alert(error.message); }
         });
 
         // Realtime Network Event Listener Pipeline Blocks
