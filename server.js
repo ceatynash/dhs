@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
 const multer = require('multer');
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 require('dotenv').config();
 
 const app = express();
@@ -585,9 +585,11 @@ app.post('/api/developer/student-import/preview', requireAuth, requireDeveloper,
             if (!req.file || !req.file.buffer) return res.status(400).json({ success: false, message: 'Choose a PDF file first.' });
             if (req.file.mimetype !== 'application/pdf' && !req.file.originalname.toLowerCase().endsWith('.pdf')) return res.status(400).json({ success: false, message: 'Upload a PDF file only.' });
             if (req.file.buffer.subarray(0, 5).toString() !== '%PDF-') return res.status(400).json({ success: false, message: 'The selected file does not appear to be a valid PDF.' });
-            const parsed = await pdfParse(req.file.buffer);
+            const parser = new PDFParse({ data: req.file.buffer });
+            let parsed;
+            try { parsed = await parser.getText(); } finally { await parser.destroy(); }
             if (!parsed.text || parsed.text.trim().length < 30) return res.status(422).json({ success: false, message: 'This PDF has no readable text. Scanned/image-only PDFs need OCR before import.' });
-            if (parsed.numpages > 300) return res.status(413).json({ success: false, message: 'PDF is over the 300-page limit. Split it into smaller files.' });
+            if (parsed.total > 300) return res.status(413).json({ success: false, message: 'PDF is over the 300-page limit. Split it into smaller files.' });
             const raw = await extractStudentsWithAI(parsed.text.slice(0, 367500));
             const candidates = classifyStudentImport(raw, readDatabase());
             const draftId = crypto.randomBytes(24).toString('hex');
@@ -596,7 +598,7 @@ app.post('/api/developer/student-import/preview', requireAuth, requireDeveloper,
             studentImportDrafts.set(draftId, { owner: req.sessionUser, expiresAt: Date.now() + 20 * 60 * 1000, candidates });
             res.set('Cache-Control', 'no-store');
             return res.json({
-                success: true, draftId, pageCount: parsed.numpages, candidateCount: candidates.length,
+                success: true, draftId, pageCount: parsed.total, candidateCount: candidates.length,
                 readyCount: candidates.filter(s => s.status === 'ready').length,
                 reviewCount: candidates.filter(s => s.status === 'review').length,
                 duplicateCount: candidates.filter(s => s.status === 'duplicate').length,
