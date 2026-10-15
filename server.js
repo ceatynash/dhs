@@ -7,6 +7,7 @@ const fs = require('fs');
 const { Pool } = require('pg');
 const multer = require('multer');
 const { PDFParse } = require('pdf-parse');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -19,6 +20,7 @@ const io = new Server(server, {
 app.use(express.json({ limit: '32kb' }));
 const pdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
 const studentImportDrafts = new Map();
+const parentNotificationJobs = new Map();
 
 // Serve static assets out of the root or a public folder
 // Serve only the explicit routes below; never expose JSON ledgers or server source as static files.
@@ -612,6 +614,113 @@ app.post('/api/developer/student-import/preview', requireAuth, requireDeveloper,
     });
 });
 
+
+function parentNotificationConfig() {
+    const enabled = String(process.env.PARENT_NOTIFICATIONS_ENABLED || '').toLowerCase() === 'true';
+    const smtpReady = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM);
+    const twilioReady = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
+    return { enabled, smtpReady, twilioReady };
+}
+let parentMailTransport = null;
+function getParentMailTransport() {
+    const port = Number(process.env.SMTP_PORT || 587);
+    const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+    const signature = [process.env.SMTP_HOST, port, secure, process.env.SMTP_USER].join('|');
+    if (!parentMailTransport || parentMailTransport.signature !== signature) {
+        parentMailTransport = {
+            signature,
+            transporter: nodemailer.createTransport({
+                host: process.env.SMTP_HOST, port, secure,
+                auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+                connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000
+            })
+        };
+    }
+    return parentMailTransport.transporter;
+}
+async function sendParentCredentialNotification(student) {
+    const cfg = parentNotificationConfig();
+    if (!cfg.enabled) return { sent: false, method: '', reason: 'Parent notifications are disabled in Render settings.' };
+    const email = String(student.parentEmail || '').trim();
+    const phone = String(student.parentPhone || '').replace(/[^\d+]/g, '');
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    const validPhone = /^\+[1-9]\d{7,14}$/.test(phone);
+    if (validEmail && cfg.smtpReady) {
+        const text = [
+            'Dear Parent/Guardian,', '',
+            'Daramombe High School has created portal access for your child.',
+            'Student name: ' + student.name,
+            'DHS student ID: ' + student.schoolId,
+            'Class: ' + student.studentClass,
+            'Initial private PIN: ' + student.pin, '',
+            'Sign in at ' + (process.env.DHS_PORTAL_URL || 'https://e-report-pgrn.onrender.com/'),
+            'Keep this PIN confidential. Do not forward this message or share the PIN in a group.',
+            'If you believe this message reached you in error, contact the school through its official office.',
+            '', 'Daramombe High School'
+        ].join('\n');
+        await getParentMailTransport().sendMail({
+            from: process.env.SMTP_FROM, to: email,
+            subject: 'Private DHS student portal access details', text,
+            headers: { 'X-Auto-Response-Suppress': 'All' }
+        });
+        return { sent: true, method: 'email', reason: '' };
+    }
+    if (validPhone && cfg.twilioReady) {
+        const body = [
+            'Daramombe High School private portal access',
+            'Student: ' + student.name,
+            'DHS ID: ' + student.schoolId,
+            'Class: ' + student.studentClass,
+            'Initial PIN: ' + student.pin,
+            'Sign in: ' + (process.env.DHS_PORTAL_URL || 'https://e-report-pgrn.onrender.com/'),
+            'Keep this PIN private. Contact the school office if this was sent in error.'
+        ].join('\n');
+        const sid = process.env.TWILIO_ACCOUNT_SID;
+        const form = new URLSearchParams({ To: phone, From: process.env.TWILIO_FROM_NUMBER, Body: body });
+        const auth = Buffer.from(sid + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
+        const response = await fetch('https://api.twilio.com/2010-04-01/Accounts/' + encodeURIComponent(sid) + '/Messages.json', {
+            method: 'POST',
+            headers: { Authorization: 'Basic ' + auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: form.toString(), signal: AbortSignal.timeout(20000)
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error('SMS provider rejected delivery (' + response.status + (payload.code ? ', code ' + payload.code : '') + ').');
+        }
+        return { sent: true, method: 'sms', reason: '' };
+    }
+    if (!validEmail && !validPhone) return { sent: false, method: '', reason: 'No valid parent email or international-format phone number is available.' };
+    if (validEmail && !cfg.smtpReady && (!validPhone || !cfg.twilioReady)) return { sent: false, method: '', reason: 'Email delivery is not configured; SMS delivery is unavailable or the phone number is not in international format.' };
+    return { sent: false, method: '', reason: 'No configured delivery channel matches the available parent contact.' };
+}
+async function runParentNotificationJob(jobId) {
+    const job = parentNotificationJobs.get(jobId);
+    if (!job) return;
+    const queue = [...job.items];
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+        while (cursor < queue.length) {
+            const item = queue[cursor++];
+            try { item.delivery = await sendParentCredentialNotification(item); }
+            catch (error) {
+                console.error('DHS parent notification delivery failed:', error.name || 'Error');
+                item.delivery = { sent: false, method: '', reason: 'The configured delivery provider failed. Check its settings and retry securely.' };
+            }
+        }
+    });
+    await Promise.all(workers);
+    job.completed = true;
+    job.completedAt = Date.now();
+    job.failedPins = job.items.filter(item => !item.delivery.sent).map(item => ({ name: item.name, schoolId: item.schoolId, pin: item.pin }));
+    job.summary = {
+        total: job.items.length, sent: job.items.filter(item => item.delivery.sent).length,
+        failed: job.failedPins.length, emailSent: job.items.filter(item => item.delivery.method === 'email').length,
+        smsSent: job.items.filter(item => item.delivery.method === 'sms').length
+    };
+    job.items = job.items.map(item => ({ name: item.name, schoolId: item.schoolId, sent: !!item.delivery.sent, method: item.delivery.method || '', reason: item.delivery.reason || '' }));
+    for (const [key, value] of parentNotificationJobs) if (value.completedAt && Date.now() - value.completedAt > 30 * 60 * 1000) parentNotificationJobs.delete(key);
+}
+
 app.post('/api/developer/student-import/commit', requireAuth, requireDeveloper, async (req, res) => {
     const body = req.body || {};
     const draft = studentImportDrafts.get(String(body.draftId || ''));
@@ -643,17 +752,47 @@ app.post('/api/developer/student-import/commit', requireAuth, requireDeveloper, 
         records.push(node);
         currentIds.add(node.schoolId);
         currentNames.add(node.name.toUpperCase());
-        importedPins.push({ name: node.name, schoolId: node.schoolId, pin });
+        importedPins.push({ name: node.name, schoolId: node.schoolId, studentClass: node.class, parentPhone: node.parentPhone, parentEmail: node.parentEmail, pin });
     }
     if (!importedPins.length) return res.status(400).json({ success: false, message: 'No selected records passed validation. Review flagged rows and refresh the preview.' });
     await writeDatabase(records);
     emitStudentLedger(records);
     studentImportDrafts.delete(String(body.draftId));
+    const config = parentNotificationConfig();
+    const jobId = crypto.randomBytes(24).toString('hex');
+    parentNotificationJobs.set(jobId, {
+        owner: req.sessionUser, createdAt: Date.now(), completed: false,
+        items: importedPins.map(item => ({ ...item, delivery: null })),
+        failedPins: [], summary: null
+    });
+    setImmediate(() => runParentNotificationJob(jobId).catch(error => {
+        console.error('DHS parent notification job failed:', error.name || 'Error');
+        const current = parentNotificationJobs.get(jobId);
+        if (current) {
+            current.completed = true; current.completedAt = Date.now();
+            current.failedPins = current.items.map(item => ({ name: item.name, schoolId: item.schoolId, pin: item.pin }));
+            current.summary = { total: current.items.length, sent: 0, failed: current.items.length, emailSent: 0, smsSent: 0 };
+            current.items = current.items.map(item => ({ name: item.name, schoolId: item.schoolId, sent: false, method: '', reason: 'Notification worker failed; use the secure fallback PIN export.' }));
+        }
+    }));
     res.set('Cache-Control', 'no-store');
     return res.json({
         success: true, importedCount: importedPins.length, skippedCount: skipped.length,
-        skipped, initialPins: importedPins,
-        message: 'New student records added. Save the one-time PIN export securely and distribute credentials privately.'
+        skipped, notificationJobId: jobId,
+        notificationEnabled: config.enabled && (config.smtpReady || config.twilioReady),
+        message: 'New student records saved. Private parent notifications have been queued. Check delivery status before closing the dashboard.'
+    });
+});
+
+app.get('/api/developer/student-import/notifications/:jobId', requireAuth, requireDeveloper, (req, res) => {
+    const job = parentNotificationJobs.get(String(req.params.jobId || ''));
+    if (!job || job.owner !== req.sessionUser) return res.status(404).json({ success: false, message: 'Notification job not found or expired.' });
+    res.set('Cache-Control', 'no-store');
+    const cfg = parentNotificationConfig();
+    return res.json({
+        success: true, completed: job.completed, summary: job.summary, results: job.items,
+        failedPins: job.completed ? job.failedPins : [],
+        deliveryConfigured: cfg.enabled && (cfg.smtpReady || cfg.twilioReady)
     });
 });
 
