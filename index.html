@@ -412,6 +412,36 @@
             }).join('');
         }
 
+        async function downloadChildInvoice(studentId) {
+            if (!sessionToken) {
+                alert('Secure invoice downloads require a signed-in parent account. The current dashboard preview uses sample data only.');
+                return;
+            }
+            try {
+                const response = await fetch('/api/parent/students/' + encodeURIComponent(studentId) + '/invoice.pdf', {
+                    headers: { Authorization: 'Bearer ' + sessionToken }
+                });
+                if (!response.ok) {
+                    let message = 'Could not download this invoice. Please try again.';
+                    try { const errorData = await response.json(); if (errorData.message) message = errorData.message; } catch (_) {}
+                    alert(message);
+                    return;
+                }
+                const pdfBlob = await response.blob();
+                const downloadUrl = URL.createObjectURL(pdfBlob);
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = 'DHS-Invoice-' + String(studentId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.pdf';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(downloadUrl);
+            } catch (error) {
+                console.error('Invoice download failed:', error);
+                alert('Invoice download failed. Check your connection and try again.');
+            }
+        }
+
         function renderDashboardStudentDataLayers(students) {
             // Render view matrix for Staff / Faculty editing grids
             const matrixContainer = document.getElementById('student-matrix-rows');
@@ -451,6 +481,10 @@
                             </div>
                             <span class="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-950/40 border border-amber-800 text-amber-400 font-mono">Official Daramombe High School Record</span>
                         </div>
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                            <div><p class="text-xs font-bold text-slate-200">School fee invoice</p><p class="text-[10px] text-slate-400 mt-1">Download a PDF of the fee details currently recorded by the school.</p></div>
+                            <button type="button" data-invoice-student-id="${t.id}" class="download-invoice-btn bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black px-3 py-2 rounded-lg whitespace-nowrap">Download invoice PDF</button>
+                        </div>
                         <div class="grid grid-cols-3 gap-2">
                             ${Object.entries(t.marks).map(([subj, val]) => `
                                 <div class="bg-slate-900 border border-slate-800 p-2 rounded text-center">
@@ -461,6 +495,9 @@
                         </div>
                     </div>
                 `).join('');
+                parentContainer.querySelectorAll('[data-invoice-student-id]').forEach(button => {
+                    button.addEventListener('click', () => downloadChildInvoice(button.dataset.invoiceStudentId));
+                });
             }
 
             // Render Developer Operations View lists
