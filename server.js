@@ -390,19 +390,33 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
 // AI assistant: authenticated, role-aware, and deliberately isolated from student records.
 const assistantRequestTimes = new Map();
 const ASSISTANT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-app.post('/api/assistant/chat', requireAuth, async (req, res) => {
-    const apiKey = (process.env.OPENAI_API_KEY || '').trim();
-    if (!apiKey) return res.status(503).json({ success: false, message: 'The AI assistant is not configured yet. Add OPENAI_API_KEY to the Render service environment.' });
+function localDhsAssistantReply(question, role) {
+    const q = String(question || '').toLowerCase();
+    if (/\b(mark|result|grade|score|report card)\b/.test(q)) return 'For official marks and results, sign in to the DHS portal and open the student results area. I cannot read or change live marks. If a mark looks wrong, contact the subject teacher or school administration.';
+    if (/\b(invoice|fee|fees|balance|payment|pay school)\b/.test(q)) return 'For official fees, open the invoice section of the DHS portal. Only amounts recorded by the school should be treated as official. If an invoice or balance is missing or incorrect, contact the school finance office.';
+    if (/\b(pin|password|sign.?in|login|account|dhs id)\b/.test(q)) return 'DHS sign-in uses the role selected on the sign-in page, your registered name, and your school-issued credentials. Keep your PIN private. If you cannot sign in, ask the school portal administrator to verify your record and reset your PIN.';
+    if (/\b(teacher|lesson plan|lesson|classroom|assessment|scheme of work)\b/.test(q)) return 'For teaching support, start with the learning objectives, connect the lesson to learners’ prior knowledge, model the skill, give guided practice, and finish with a short assessment. Tell me the subject, form level, and topic for a more specific plan.';
+    if (/\b(history|zimsec|federation|berlin conference|great zimbabwe|french revolution|mutapa)\b/.test(q)) return 'For a strong ZIMSEC History response, define the issue briefly, organise evidence into clear arguments, explain how each factor contributed, and finish with a supported judgement that directly answers the command word. Tell me the exact question and level for a tailored answer.';
+    if (/\b(literature|poem|poetry|novel|prose|drama|character|theme|imagery|metaphor|simile)\b/.test(q)) return 'For literature analysis, make a point about a literary technique, support it with an accurate quotation, explain its effect on meaning or atmosphere, and link it to the question. Share the text and question if you want a focused analysis.';
+    if (/\b(math|mathematics|algebra|equation|calculate|percentage)\b/.test(q)) return 'I can help you work through a maths problem step by step. Send the full question and any values or diagram details, and I will show the method rather than only the answer.';
+    if (/\b(science|biology|chemistry|physics)\b/.test(q)) return 'I can help explain science concepts and work through questions. Include your form level, topic, and the exact question so the explanation matches what you are studying.';
+    if (/\b(hello|hi|hey|good morning|good afternoon)\b/.test(q)) return 'Hello! I’m the DHS Portal Assistant. I can help with portal navigation, school administration guidance, study support, and general questions. What would you like help with?';
+    if (/\b(who are you|what can you do|help)\b/.test(q)) return 'I’m the DHS Portal Assistant. This no-key mode can provide basic guidance on portal sign-in, marks, invoices, teaching, and school study topics. I do not access private student records or make changes. For broader conversational AI, the administrator can optionally configure a model-provider API key.';
+    return 'I can offer basic DHS portal guidance and study help in free no-key mode, but this deployment does not have a hosted language-model API configured. Try asking about sign-in/PINs, marks, invoices, lesson planning, ZIMSEC History, literature analysis, maths, or science. For full open-ended AI responses, a model-provider API key is required; ChatGPT Free itself is not directly callable as a public API.';
+}
 
-    const email = String(req.sessionUser.email || '').toLowerCase().trim();
+app.post('/api/assistant/chat', async (req, res) => {
+    const apiKey = (process.env.OPENAI_API_KEY || '').trim();
+
+    const email = req.sessionUser ? String(req.sessionUser.email || '').toLowerCase().trim() : String(req.ip || req.socket.remoteAddress || 'anonymous');
     const now = Date.now();
     const recent = (assistantRequestTimes.get(email) || []).filter(timestamp => now - timestamp < 60_000);
     if (recent.length >= 10) return res.status(429).json({ success: false, message: 'Please wait a minute before sending more assistant requests.' });
     recent.push(now);
     assistantRequestTimes.set(email, recent);
 
-    const allowedRoles = ['Developer', 'Teacher', 'Head/Deputy', 'Parent', 'DOSA'];
-    const role = allowedRoles.includes(req.sessionUser.role) ? req.sessionUser.role : 'Portal user';
+    const allowedRoles = ['Developer', 'Teacher', 'Head/Deputy', 'Parent', 'DOSA', 'Student'];
+    const role = req.sessionUser && allowedRoles.includes(req.sessionUser.role) ? req.sessionUser.role : 'Public portal visitor';
     const rawMessages = Array.isArray(req.body && req.body.messages) ? req.body.messages : [];
     const messages = rawMessages.slice(-8).map(message => ({
         role: message && message.role === 'assistant' ? 'assistant' : 'user',
@@ -419,6 +433,13 @@ app.post('/api/assistant/chat', requireAuth, async (req, res) => {
         'Parent': 'Help parents understand portal features, school communications, and how to download invoices. Do not request passwords, payment card details, or private credentials.',
         'DOSA': 'Help with alumni association communication, events, and portal usage. Do not expose student records or staff-only information.'
     };
+    if (!apiKey) {
+        const lastUserMessage = messages.filter(message => message.role === 'user').slice(-1)[0];
+        const answer = localDhsAssistantReply(lastUserMessage && lastUserMessage.content, role);
+        res.set('Cache-Control', 'no-store');
+        return res.json({ success: true, answer, model: 'dhs-local-free-assistant', mode: 'no-key' });
+    }
+
     const systemPrompt = [
         'You are the Daramombe High School (DHS) portal assistant.',
         'Be helpful, concise, respectful, and use clear language suitable for a Zimbabwean school community.',
