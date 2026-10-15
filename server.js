@@ -590,7 +590,8 @@ app.post('/api/developer/student-import/preview', requireAuth, requireDeveloper,
             try { parsed = await parser.getText(); } finally { await parser.destroy(); }
             if (!parsed.text || parsed.text.trim().length < 30) return res.status(422).json({ success: false, message: 'This PDF has no readable text. Scanned/image-only PDFs need OCR before import.' });
             if (parsed.total > 300) return res.status(413).json({ success: false, message: 'PDF is over the 300-page limit. Split it into smaller files.' });
-            const raw = await extractStudentsWithAI(parsed.text.slice(0, 367500));
+            if (parsed.text.length > 367500) return res.status(413).json({ success: false, message: 'This PDF contains too much extracted text for one safe import. Split it into smaller PDFs so no student records are silently omitted.' });
+            const raw = await extractStudentsWithAI(parsed.text);
             const candidates = classifyStudentImport(raw, readDatabase());
             const draftId = crypto.randomBytes(24).toString('hex');
             for (const [key, draft] of studentImportDrafts) if (draft.expiresAt < Date.now()) studentImportDrafts.delete(key);
