@@ -121,7 +121,7 @@ function pdfSafeText(value) {
     return String(value == null ? '' : value)
         .normalize('NFKD')
         .replace(/[^\x20-\x7E]/g, '')
-        .replace(/[()\\\\]/g, '\\\\app.get('/api/staff', requireAuth, requireDeveloper, (req, res) => res.json(readStaffDatabase()));')
+        .replace(/[()\\]/g, char => '\\' + char)
         .slice(0, 150);
 }
 
