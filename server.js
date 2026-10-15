@@ -7,6 +7,7 @@ const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: { origin: process.env.ALLOWED_ORIGIN || true }
@@ -75,8 +76,7 @@ let systemAnnouncements = [
 let activeDosaSessions = {}; 
 
 // System Constants & Hardcoded Access Frameworks
-const DEVELOPER_EMAIL = (process.env.DEVELOPER_EMAIL || '').toLowerCase().trim();
-const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+const DEVELOPER_NAME = (process.env.DHS_DEVELOPER_NAME || '').trim();
 
 // Database Operations
 const readDatabase = () => {
@@ -107,13 +107,14 @@ const readStaffDatabase = () => {
 const writeStaffDatabase = (data) => fs.writeFileSync(STAFF_FILE, JSON.stringify(data, null, 2), 'utf8');
 
 function emitStudentLedger(records) {
+    const safeRecords = records.map(({ pinSalt, pinHash, ...student }) => student);
     for (const client of io.sockets.sockets.values()) {
         const user = client.sessionUser;
         if (!user) continue;
         if (user.role === 'Parent' || user.role === 'Student') {
-            client.emit('ledger_sync_update', records.filter(s => String(s.schoolId || '').toUpperCase() === String(user.schoolId || '').toUpperCase()));
+            client.emit('ledger_sync_update', safeRecords.filter(s => String(s.schoolId || '').toUpperCase() === String(user.schoolId || '').toUpperCase()));
         } else if (['Teacher', 'Head/Deputy', 'Developer'].includes(user.role)) {
-            client.emit('ledger_sync_update', records);
+            client.emit('ledger_sync_update', safeRecords);
         }
     }
 }
