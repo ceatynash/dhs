@@ -77,24 +77,28 @@
 
         <form id="login-form" class="space-y-4">
             <div>
-                <label class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Clearance Profile Group</label>
-                <select id="auth-role" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-slate-200">
-                    <option value="Parent">Parent / Guardian Channel</option>
-                    <option value="Teacher">Faculty Teacher Terminal</option>
-                    <option value="Head/Deputy">Headmaster / Deputy Administration</option>
-                    <option value="DOSA">DOSA Executive / Alumni Sponsor</option>
-                    <option value="Developer">Core System Developer</option>
+                <label for="auth-role" class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Sign-in profile</label>
+                <select id="auth-role" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
+                    <option value="Parent">Parent / Guardian</option><option value="Student">Student</option>
+                    <option value="Teacher">Teacher</option><option value="Head/Deputy">Head / Deputy</option>
+                    <option value="DOSA">DOSA Member</option><option value="Developer">Portal Developer</option>
                 </select>
             </div>
-
-            <div id="dosa-name-wrapper" class="hidden">
-                <label class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Registered Association Name</label>
-                <input type="text" id="auth-dosa-name" placeholder="e.g., Daramombe Old Students Association (DOSA)" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 text-slate-100">
+            <div id="school-id-wrapper">
+                <label for="auth-school-id" class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Unique DHS student ID</label>
+                <input id="auth-school-id" name="schoolId" autocomplete="username" maxlength="60" placeholder="e.g. DHS-2026-0001" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100">
             </div>
-
-            <p class="text-xs text-slate-400 text-center">Choose your registered portal role, then continue with the Google account registered to that role. Student records stay protected by server-side access checks.</p>
-            <div id="google-signin-button" class="w-full flex justify-center min-h-11" aria-label="Sign in with Google"></div>
-            <p id="google-signin-status" class="text-xs text-center text-slate-400" role="status" aria-live="polite">Loading secure Google Sign-In…</p>
+            <div>
+                <label for="auth-name" class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Exact registered full name</label>
+                <input id="auth-name" name="name" autocomplete="name" maxlength="120" required placeholder="Enter your registered full name" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100">
+            </div>
+            <div>
+                <label for="auth-pin" class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Private DHS PIN</label>
+                <input id="auth-pin" name="pin" type="password" autocomplete="current-password" minlength="8" maxlength="32" required placeholder="8–32 letters or numbers" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100">
+            </div>
+            <p id="auth-help" class="text-xs text-slate-400 text-center">Parents and students use the child's DHS ID, exact registered name, and private PIN. Never share the PIN publicly.</p>
+            <button id="auth-submit" type="submit" class="w-full rounded-lg bg-amber-500 hover:bg-amber-400 px-4 py-3 text-sm font-black uppercase tracking-wide text-slate-950">Sign in securely</button>
+            <p id="auth-status" class="text-xs text-center text-slate-400" role="status" aria-live="polite">DHS-managed secure sign-in</p>
         </form>
     </div>
 
@@ -180,14 +184,16 @@
                                 <input type="text" id="dev-stud-id" placeholder="School ID (DHS-2026-XXXX)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
                                 <input type="text" id="dev-stud-class" placeholder="Class (e.g., Form 6)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
                                 <input type="text" id="dev-stud-phone" placeholder="Parent Contact Number" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
-                                <input type="email" id="dev-stud-email" placeholder="Parent Verification Mail Handle" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="email" id="dev-stud-email" placeholder="Parent contact email (optional)" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="password" id="dev-stud-pin" minlength="8" maxlength="32" placeholder="Initial family PIN (8+ characters)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
                                 <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 font-bold text-slate-950 py-1 rounded text-[11px] uppercase">Commit Student Node</button>
                             </form>
 
                             <form id="dev-add-staff-form" class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
                                 <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Inject Faculty Staff Node</div>
                                 <input type="text" id="dev-staff-name" placeholder="Faculty Instructor Name" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
-                                <input type="email" id="dev-staff-email" placeholder="Faculty Email Key Handle" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="email" id="dev-staff-email" placeholder="Staff email (for contact)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
+                                <input type="password" id="dev-staff-pin" minlength="8" maxlength="32" placeholder="Initial staff PIN (8+ characters)" required class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs">
                                 <select id="dev-staff-role" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300">
                                     <option value="Teacher">Teacher Terminal</option>
                                     <option value="Head/Deputy">Head/Deputy Administration</option>
@@ -295,8 +301,7 @@
       <button type="button" id="dhs-ai-toggle"><span aria-hidden="true">✦</span> Ask DHS AI</button>
     </div>
 
-<script src="https://accounts.google.com/gsi/client"></script>
-    <script>
+<script>
         let sessionToken = '';
         const socket = io({ autoConnect: false, auth: { token: '' } });
         
@@ -306,79 +311,39 @@
         
         let activeSelectedEditingStudentId = null;
 
-        const isPreviewMode = true;
-        // Watch dropdown choice to show / hide specific field frameworks
-        document.getElementById('auth-role').addEventListener('change', (e) => {
-            const dosaWrapper = document.getElementById('dosa-name-wrapper');
-            if (e.target.value === 'DOSA') {
-                dosaWrapper.classList.remove('hidden');
-                document.getElementById('auth-dosa-name').setAttribute('required', 'true');
-            } else {
-                dosaWrapper.classList.add('hidden');
-                document.getElementById('auth-dosa-name').removeAttribute('required');
-            }
+        const isPreviewMode = false;
+        document.getElementById('auth-role').addEventListener('change', (event) => {
+            const role = event.target.value, isFamily = role === 'Parent' || role === 'Student';
+            document.getElementById('school-id-wrapper').classList.toggle('hidden', !isFamily);
+            document.getElementById('auth-school-id').required = isFamily;
+            document.getElementById('auth-help').textContent = isFamily
+                ? "Parents and students use the child's DHS ID, exact registered name, and private PIN. Never share the PIN publicly."
+                : role === 'Developer' ? "Use the DHS developer name and private developer PIN configured by the portal administrator."
+                : role === 'DOSA' ? "Use your exact registered DOSA name and school-issued PIN."
+                : "Use your exact registered staff name and school-issued PIN.";
         });
-
-        // Google Identity Services supplies an ID token; the server verifies it and assigns the authorized role.
-        document.getElementById('login-form').addEventListener('submit', (event) => event.preventDefault());
-
-        async function initializeGoogleSignIn() {
-            const status = document.getElementById('google-signin-status');
-            const container = document.getElementById('google-signin-button');
+        document.getElementById('login-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const status = document.getElementById('auth-status'), button = document.getElementById('auth-submit');
+            status.textContent = 'Checking your DHS credentials…'; status.classList.remove('text-rose-400'); button.disabled = true;
             try {
-                const configResponse = await fetch('/api/auth/config', { cache: 'no-store' });
-                const config = await configResponse.json();
-                if (!configResponse.ok || !config.clientId) throw new Error(config.message || 'Google Sign-In is not configured.');
-                if (!window.google || !google.accounts || !google.accounts.id) throw new Error('Google Sign-In could not load. Check your connection or content blockers.');
-                google.accounts.id.initialize({
-                    client_id: config.clientId,
-                    callback: handleGoogleCredential,
-                    auto_select: false,
-                    cancel_on_tap_outside: true
+                const role = document.getElementById('auth-role').value;
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+                    body: JSON.stringify({ role, name: document.getElementById('auth-name').value.trim(),
+                        schoolId: document.getElementById('auth-school-id').value.trim(), pin: document.getElementById('auth-pin').value })
                 });
-                const renderButton = () => {
-                    container.innerHTML = '';
-                    google.accounts.id.renderButton(container, {
-                        type: 'standard', theme: 'filled_black', size: 'large',
-                        text: 'signin_with', shape: 'rectangular',
-                        width: Math.max(220, Math.min(360, Math.floor(container.clientWidth || 320))),
-                        logo_alignment: 'left'
-                    });
-                };
-                renderButton();
-                window.addEventListener('resize', renderButton);
-                status.textContent = 'Use the Google account registered for the selected role.';
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.message || 'Sign-in failed. Check your details.');
+                sessionToken = data.token; currentSessionEmail = data.email || data.name;
+                currentSessionRole = data.role; currentSessionDosaName = data.dosaName || '';
+                document.getElementById('auth-pin').value = '';
+                socket.auth = { token: sessionToken }; socket.connect(); initializeRuntimeDashboardInterface();
             } catch (error) {
-                status.textContent = error.message || 'Google Sign-In is unavailable.';
+                status.textContent = error.message || 'Sign-in failed. Check your registered details.';
                 status.classList.add('text-rose-400');
-            }
-        }
-
-        async function handleGoogleCredential(response) {
-            const status = document.getElementById('google-signin-status');
-            const role = document.getElementById('auth-role').value;
-            status.textContent = 'Verifying your Google account…';
-            status.classList.remove('text-rose-400');
-            try {
-                const res = await fetch('/api/auth/google', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ credential: response.credential, role })
-                });
-                const data = await res.json();
-                if (!res.ok || !data.success) throw new Error(data.message || 'Google sign-in was not authorized.');
-                sessionToken = data.token;
-                currentSessionEmail = data.email;
-                currentSessionRole = data.role;
-                currentSessionDosaName = data.dosaName || '';
-                socket.auth = { token: sessionToken };
-                socket.connect();
-                initializeRuntimeDashboardInterface();
-            } catch (error) {
-                status.textContent = error.message || 'Sign-in failed. Choose the registered Google account and try again.';
-                status.classList.add('text-rose-400');
-            }
-        }
+            } finally { button.disabled = false; }
+        });
 
         function initializeRuntimeDashboardInterface() {
             document.getElementById('auth-card').classList.add('hidden');
@@ -388,7 +353,7 @@
             document.getElementById('session-role-tag').innerText = currentSessionRole.toUpperCase();
 
             // Set role visibility rules panels
-            if (currentSessionRole === 'Parent') {
+            if (currentSessionRole === 'Parent' || currentSessionRole === 'Student') {
                 document.getElementById('panel-parent').classList.remove('hidden');
             } else if (currentSessionRole === 'Teacher' || currentSessionRole === 'Head/Deputy') {
                 document.getElementById('panel-staff').classList.remove('hidden');
@@ -567,13 +532,10 @@
             `).join('');
 
             // Render Parents / DOSA View Reports
-            if (currentSessionRole === 'Parent' || currentSessionRole === 'DOSA') {
+            if (currentSessionRole === 'Parent' || currentSessionRole === 'Student' || currentSessionRole === 'DOSA') {
                 const parentContainer = document.getElementById('parent-report-card-render');
-                
-                // If checking Parent context: limit payload visibility mapping strictly to matching child accounts
-                const targets = (currentSessionRole === 'Parent') 
-                    ? students.filter(s => s.parentEmail.toLowerCase() === currentSessionEmail.toLowerCase().trim())
-                    : students; // DOSA can review all matching files across records arrays
+                // The server scopes family records to the authenticated DHS student ID.
+                const targets = (currentSessionRole === 'Parent' || currentSessionRole === 'Student') ? students : [];
 
                 if (targets.length === 0) {
                     parentContainer.innerHTML = `<div class="text-xs text-rose-400 font-mono italic">No registered student profile matrix aligned with this security handle identity index.</div>`;
@@ -591,7 +553,7 @@
                         </div>
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
                             <div><p class="text-xs font-bold text-slate-200">School fee invoice</p><p class="text-[10px] text-slate-400 mt-1">Download a PDF of the fee details currently recorded by the school.</p></div>
-                            ${currentSessionRole === 'Parent' ? `<button type="button" data-invoice-student-id="${t.id}" class="download-invoice-btn bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black px-3 py-2 rounded-lg whitespace-nowrap">Download invoice PDF</button>` : ''}
+                            ${['Parent', 'Student'].includes(currentSessionRole) ? `<button type="button" data-invoice-student-id="${t.id}" class="download-invoice-btn bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black px-3 py-2 rounded-lg whitespace-nowrap">Download invoice PDF</button>` : ''}
                         </div>
                         <div class="grid grid-cols-3 gap-2">
                             ${Object.entries(t.marks).map(([subj, val]) => `
@@ -705,7 +667,8 @@
                 schoolId: document.getElementById('dev-stud-id').value,
                 formClass: document.getElementById('dev-stud-class').value,
                 parentPhone: document.getElementById('dev-stud-phone').value,
-                parentEmail: document.getElementById('dev-stud-email').value
+                parentEmail: document.getElementById('dev-stud-email').value,
+                pin: document.getElementById('dev-stud-pin').value
             };
             const res = await fetch('/api/developer/add-student', {
                 method: 'POST',
@@ -726,7 +689,8 @@
             const body = {
                 name: document.getElementById('dev-staff-name').value,
                 email: document.getElementById('dev-staff-email').value,
-                role: document.getElementById('dev-staff-role').value
+                role: document.getElementById('dev-staff-role').value,
+                pin: document.getElementById('dev-staff-pin').value
             };
             const res = await fetch('/api/developer/add-staff', {
                 method: 'POST',
