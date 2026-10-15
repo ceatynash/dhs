@@ -209,6 +209,40 @@
                         </div>
                     </div>
 
+                    <div class="bg-slate-900 border border-emerald-800 rounded-xl p-5 shadow-xl space-y-4">
+                        <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-black uppercase text-emerald-300 border-b border-slate-800 pb-2 tracking-wider">AI Student Register Import (PDF)</h3>
+                                <p class="text-xs text-slate-300 mt-2">Upload a searchable PDF register for up to 800 students. AI extracts the fields, checks DHS IDs against existing records, and prepares a review list. Existing records are never overwritten.</p>
+                            </div>
+                            <span class="text-[10px] uppercase font-bold text-emerald-300 border border-emerald-900 rounded px-2 py-1">Developer only</span>
+                        </div>
+                        <div class="rounded-lg border border-amber-900/70 bg-amber-950/30 p-3 text-[11px] text-amber-100">
+                            Privacy notice: readable PDF text containing student details is sent to the AI provider configured on Render for extraction. Do not upload information the school is not authorized to process. The PDF itself is processed in memory and is not saved by this feature. Scanned/image-only PDFs require OCR first.
+                        </div>
+                        <form id="dev-student-pdf-form" class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                            <input id="dev-student-pdf-file" type="file" accept="application/pdf,.pdf" required class="min-w-0 flex-1 text-xs text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white">
+                            <button id="dev-student-pdf-analyze" type="submit" class="rounded-lg bg-emerald-500 px-4 py-2 text-xs font-black text-slate-950 hover:bg-emerald-400">Analyze PDF</button>
+                        </form>
+                        <p id="dev-student-pdf-status" class="text-xs text-slate-300" aria-live="polite">No import preview loaded. The AI API key and model must be configured on Render.</p>
+                        <div id="dev-student-pdf-results" class="hidden space-y-3">
+                            <div id="dev-student-pdf-summary" class="text-xs font-bold text-slate-200"></div>
+                            <div class="flex flex-wrap gap-2">
+                                <button id="dev-student-pdf-select-ready" type="button" class="rounded border border-slate-600 px-3 py-1.5 text-[11px] font-bold text-slate-200">Select valid rows</button>
+                                <button id="dev-student-pdf-select-none" type="button" class="rounded border border-slate-600 px-3 py-1.5 text-[11px] font-bold text-slate-200">Clear selection</button>
+                            </div>
+                            <div class="max-h-80 overflow-auto rounded-lg border border-slate-700">
+                                <table class="w-full text-left text-[11px]">
+                                    <thead class="sticky top-0 bg-slate-800 text-slate-300"><tr><th class="p-2">Import</th><th class="p-2">Student / DHS ID</th><th class="p-2">Class</th><th class="p-2">Status / issues</th></tr></thead>
+                                    <tbody id="dev-student-pdf-rows" class="divide-y divide-slate-800"></tbody>
+                                </table>
+                            </div>
+                            <p class="text-[11px] text-slate-400">Only rows marked READY can be imported. REVIEW and DUPLICATE rows are blocked until you correct the source PDF and analyze it again.</p>
+                            <button id="dev-student-pdf-commit" type="button" class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-amber-400">Confirm and add selected new students</button>
+                            <button id="dev-student-pdf-download-pins" type="button" class="hidden w-full rounded-lg border border-emerald-700 px-4 py-2 text-xs font-bold text-emerald-200">Download one-time initial PINs (CSV)</button>
+                        </div>
+                    </div>
+
                     <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl space-y-4">
                         <h3 class="text-sm font-black uppercase text-amber-300 border-b border-slate-800 pb-2 tracking-wider">Issue or reset credentials for existing accounts</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -708,6 +742,152 @@
             } else {
                 alert(data.message);
             }
+        });
+
+        // Developer-only AI PDF register import. The preview is temporary and must be confirmed.
+        let activeStudentImportDraftId = null;
+        let activeStudentImportCandidates = [];
+        let oneTimeImportPins = [];
+        const studentPdfForm = document.getElementById('dev-student-pdf-form');
+        const studentPdfStatus = document.getElementById('dev-student-pdf-status');
+        const studentPdfResults = document.getElementById('dev-student-pdf-results');
+        const studentPdfRows = document.getElementById('dev-student-pdf-rows');
+        const studentPdfAnalyze = document.getElementById('dev-student-pdf-analyze');
+        const studentPdfCommit = document.getElementById('dev-student-pdf-commit');
+        const studentPdfDownloadPins = document.getElementById('dev-student-pdf-download-pins');
+
+        function renderStudentImportPreview(data) {
+            activeStudentImportDraftId = data.draftId;
+            activeStudentImportCandidates = Array.isArray(data.candidates) ? data.candidates : [];
+            studentPdfRows.replaceChildren();
+            activeStudentImportCandidates.forEach((student, index) => {
+                const tr = document.createElement('tr');
+                const selectCell = document.createElement('td');
+                selectCell.className = 'p-2 align-top';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.studentImportIndex = String(index);
+                checkbox.checked = student.status === 'ready';
+                checkbox.disabled = student.status !== 'ready';
+                checkbox.setAttribute('aria-label', 'Select ' + (student.name || 'record'));
+                selectCell.appendChild(checkbox);
+                const nameCell = document.createElement('td');
+                nameCell.className = 'p-2 align-top';
+                const name = document.createElement('div');
+                name.className = 'font-bold text-slate-100';
+                name.textContent = student.name || 'Missing name';
+                const id = document.createElement('div');
+                id.className = 'mt-1 text-slate-400';
+                id.textContent = student.schoolId || 'Missing DHS ID';
+                nameCell.append(name, id);
+                const classCell = document.createElement('td');
+                classCell.className = 'p-2 align-top text-slate-300';
+                classCell.textContent = student.studentClass || 'Missing class';
+                const issueCell = document.createElement('td');
+                issueCell.className = 'p-2 align-top';
+                const status = document.createElement('div');
+                status.className = 'font-black ' + (student.status === 'ready' ? 'text-emerald-300' : student.status === 'duplicate' ? 'text-rose-300' : 'text-amber-300');
+                status.textContent = String(student.status || 'review').toUpperCase();
+                const issue = document.createElement('div');
+                issue.className = 'mt-1 text-slate-400';
+                issue.textContent = Array.isArray(student.issues) && student.issues.length ? student.issues.join('; ') : (student.sourceEvidence || 'Verify against the original PDF');
+                issueCell.append(status, issue);
+                tr.append(selectCell, nameCell, classCell, issueCell);
+                studentPdfRows.appendChild(tr);
+            });
+            document.getElementById('dev-student-pdf-summary').textContent =
+                'Pages: ' + data.pageCount + ' · Extracted candidates: ' + data.candidateCount +
+                ' · Ready: ' + data.readyCount + ' · Review: ' + data.reviewCount + ' · Duplicates: ' + data.duplicateCount;
+            studentPdfResults.classList.remove('hidden');
+            studentPdfCommit.disabled = data.readyCount === 0;
+            studentPdfCommit.classList.toggle('opacity-50', data.readyCount === 0);
+            studentPdfDownloadPins.classList.add('hidden');
+            oneTimeImportPins = [];
+        }
+
+        studentPdfForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const file = document.getElementById('dev-student-pdf-file').files[0];
+            if (!file) { studentPdfStatus.textContent = 'Choose a PDF file first.'; return; }
+            if (!file.name.toLowerCase().endsWith('.pdf') || file.size > 15 * 1024 * 1024) {
+                studentPdfStatus.textContent = 'Choose a PDF file no larger than 15 MB.';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('pdf', file);
+            studentPdfAnalyze.disabled = true;
+            studentPdfAnalyze.textContent = 'Analyzing…';
+            studentPdfStatus.textContent = 'Extracting text and asking the configured AI model to identify student entries. Keep this page open.';
+            studentPdfResults.classList.add('hidden');
+            try {
+                const response = await fetch('/api/developer/student-import/preview', {
+                    method: 'POST',
+                    headers: { Authorization: 'Bearer ' + sessionToken },
+                    body: formData
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) throw new Error(result.message || 'PDF analysis failed.');
+                renderStudentImportPreview(result);
+                studentPdfStatus.textContent = 'Analysis complete. Verify every candidate against the original register before importing.';
+            } catch (error) {
+                studentPdfStatus.textContent = error.message || 'PDF analysis failed. Try again.';
+            } finally {
+                studentPdfAnalyze.disabled = false;
+                studentPdfAnalyze.textContent = 'Analyze PDF';
+            }
+        });
+
+        document.getElementById('dev-student-pdf-select-ready').addEventListener('click', () => {
+            studentPdfRows.querySelectorAll('input[data-student-import-index]').forEach((checkbox) => {
+                checkbox.checked = activeStudentImportCandidates[Number(checkbox.dataset.studentImportIndex)]?.status === 'ready';
+            });
+        });
+        document.getElementById('dev-student-pdf-select-none').addEventListener('click', () => {
+            studentPdfRows.querySelectorAll('input[data-student-import-index]').forEach(checkbox => { checkbox.checked = false; });
+        });
+
+        studentPdfCommit.addEventListener('click', async () => {
+            if (!activeStudentImportDraftId) { studentPdfStatus.textContent = 'Analyze a PDF before importing.'; return; }
+            const selectedIndexes = Array.from(studentPdfRows.querySelectorAll('input[data-student-import-index]:checked'))
+                .map(checkbox => Number(checkbox.dataset.studentImportIndex));
+            if (!selectedIndexes.length) { studentPdfStatus.textContent = 'Select at least one READY row to import.'; return; }
+            if (!confirm('Add ' + selectedIndexes.length + ' new student records? Existing records will not be overwritten.')) return;
+            studentPdfCommit.disabled = true;
+            studentPdfStatus.textContent = 'Validating selected rows and saving new records…';
+            try {
+                const response = await fetch('/api/developer/student-import/commit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sessionToken },
+                    body: JSON.stringify({ draftId: activeStudentImportDraftId, selectedIndexes })
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) throw new Error(result.message || 'Student import failed.');
+                oneTimeImportPins = Array.isArray(result.initialPins) ? result.initialPins : [];
+                activeStudentImportDraftId = null;
+                studentPdfStatus.textContent = result.message + ' Imported: ' + result.importedCount + '; skipped: ' + result.skippedCount + '.';
+                studentPdfDownloadPins.classList.toggle('hidden', oneTimeImportPins.length === 0);
+                studentPdfCommit.disabled = true;
+                syncDatabaseFeeds();
+            } catch (error) {
+                studentPdfStatus.textContent = error.message || 'Student import failed.';
+                studentPdfCommit.disabled = false;
+            }
+        });
+
+        studentPdfDownloadPins.addEventListener('click', () => {
+            if (!oneTimeImportPins.length) return;
+            const csvCell = value => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+            const csv = ['Student Name,DHS ID,Initial PIN', ...oneTimeImportPins.map(item =>
+                [item.name, item.schoolId, item.pin].map(csvCell).join(',')
+            )].join('\r\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'DHS-new-student-initial-pins.csv';
+            link.click();
+            URL.revokeObjectURL(url);
+            studentPdfStatus.textContent = 'PIN export downloaded. Store it securely and distribute credentials privately; this download cannot be regenerated from the portal.';
         });
 
         document.getElementById('dev-add-staff-form').addEventListener('submit', async (e) => {
