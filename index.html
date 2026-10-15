@@ -786,7 +786,7 @@
         socket.on('security_alert', (payload) => alert(payload.message));
 
         socket.on('forced_disconnect_target', (payload) => {
-            if (payload.type === 'Student' && currentSessionRole === 'Parent') {
+            if (payload.type === 'Student' && ['Parent', 'Student'].includes(currentSessionRole)) {
                 alert("Core System Notice: Your tracking nodes are being recalculated by administrative instructions.");
                 window.location.reload();
             }
@@ -868,7 +868,7 @@
             }
         });
 
-            initializeGoogleSignIn();
+
     </script>
 </body>
 </html>
