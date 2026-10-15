@@ -390,6 +390,7 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
 // AI assistant: authenticated, role-aware, and deliberately isolated from student records.
 const assistantRequestTimes = new Map();
 const ASSISTANT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const ASSISTANT_API_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '');
 function localDhsAssistantReply(question, role) {
     const q = String(question || '').toLowerCase();
     if (/\b(mark|result|grade|score|report card)\b/.test(q)) return 'For official marks and results, sign in to the DHS portal and open the student results area. I cannot read or change live marks. If a mark looks wrong, contact the subject teacher or school administration.';
@@ -433,9 +434,9 @@ app.post('/api/assistant/chat', async (req, res) => {
         'Parent': 'Help parents understand portal features, school communications, and how to download invoices. Do not request passwords, payment card details, or private credentials.',
         'DOSA': 'Help with alumni association communication, events, and portal usage. Do not expose student records or staff-only information.'
     };
-    // Public visitors always use the no-key fallback, even if a paid API key is configured.
-    // Only authenticated portal sessions may invoke a configured hosted model.
-    if (!apiKey || !req.sessionUser) {
+    // If a server-side provider key is configured, both signed-in users and public visitors can use the model.
+    // Never accept API keys from the browser; public traffic is rate-limited by IP above.
+    if (!apiKey) {
         const lastUserMessage = messages.filter(message => message.role === 'user').slice(-1)[0];
         const answer = localDhsAssistantReply(lastUserMessage && lastUserMessage.content, role);
         res.set('Cache-Control', 'no-store');
@@ -454,7 +455,7 @@ app.post('/api/assistant/chat', async (req, res) => {
     ].join(' ');
 
     try {
-        const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+        const upstream = await fetch(ASSISTANT_API_BASE_URL + '/chat/completions', {
             method: 'POST',
             headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({
