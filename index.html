@@ -37,6 +37,34 @@
       #dhs-ai-close { border:1px solid #475569; border-radius:8px; padding:4px 8px; color:#e2e8f0; background:#0f172a; cursor:pointer; }
       @media (max-width:480px) { #dhs-ai-assistant { right:10px; bottom:10px; } #dhs-ai-window { width:calc(100vw - 20px); height:min(68vh,520px); } }
 
+
+      /* School crest backdrop for the sign-in screen only */
+      body:has(#auth-card:not(.hidden)) {
+        position: relative;
+        isolation: isolate;
+        background-image:
+          linear-gradient(rgba(2, 6, 23, .76), rgba(2, 6, 23, .86)),
+          url("https://vacancymail.co.zw/media/logo/logo_daramombe-high-school_T.png");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        background-repeat: no-repeat;
+      }
+      body:has(#auth-card:not(.hidden))::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background: rgba(2, 6, 23, .18);
+        pointer-events: none;
+      }
+      body:has(#auth-card:not(.hidden)) #auth-card {
+        background: rgba(15, 23, 42, .91);
+        border-color: rgba(245, 158, 11, .55);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
