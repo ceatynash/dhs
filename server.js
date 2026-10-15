@@ -134,7 +134,7 @@ app.get('/api/students', requireAuth, (req, res) => {
     }
     return res.status(403).json({ success: false, message: 'Student records access denied.' });
 });
-app.get('/api/staff', requireAuth, requireDeveloper, (req, res) => res.json(readStaffDatabase()));
+app.get('/api/staff', requireAuth, requireDeveloper, (req, res) => res.json(readStaffDatabase().map(({ pinSalt, pinHash, ...staff }) => staff)));
 
 // Build a small dependency-free PDF invoice. Fee amounts are only shown when entered
 // in the student's invoice.items or fees records; the server never invents charges.
@@ -452,7 +452,8 @@ app.post('/api/developer/add-student', requireAuth, requireDeveloper, (req, res)
     records.push(targetNode);
     writeDatabase(records);
     emitStudentLedger(records); // Send only records this authenticated role is allowed to see
-    res.json({ success: true, student: targetNode });
+    const { pinSalt, pinHash, ...safeStudent } = targetNode;
+    res.json({ success: true, student: safeStudent });
 });
 
 app.post('/api/developer/add-staff', requireAuth, requireDeveloper, (req, res) => {
@@ -466,8 +467,9 @@ app.post('/api/developer/add-staff', requireAuth, requireDeveloper, (req, res) =
     const targetStaff = { id: Date.now(), name: name.trim(), email: email.trim().toLowerCase(), role, ...hashPin(String(pin)) };
     faculty.push(targetStaff);
     writeStaffDatabase(faculty);
-    io.emit('staff_sync_update', faculty);
-    res.json({ success: true, staff: targetStaff });
+    io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+    const { pinSalt, pinHash, ...safeStaff } = targetStaff;
+    res.json({ success: true, staff: safeStaff });
 });
 
 
@@ -530,7 +532,7 @@ io.on('connection', (socket) => {
         faculty = faculty.filter(f => f.id !== id);
         writeStaffDatabase(faculty);
         
-        io.emit('staff_sync_update', faculty);
+        io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
         if (targetStaff) {
             io.emit('forced_disconnect_target', { type: 'Staff', targetEmail: targetStaff.email });
         }
