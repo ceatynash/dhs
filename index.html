@@ -267,7 +267,8 @@
       <button type="button" id="dhs-ai-toggle"><span aria-hidden="true">✦</span> Ask DHS AI</button>
     </div>
 
-<script>
+<script src="https://accounts.google.com/gsi/client"></script>
+    <script>
         let sessionToken = '';
         const socket = io({ autoConnect: false, auth: { token: '' } });
         
