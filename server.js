@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const { Pool } = require('pg');
 require('dotenv').config();
 
 const app = express();
@@ -78,33 +79,126 @@ let activeDosaSessions = {};
 // System Constants & Hardcoded Access Frameworks
 const DEVELOPER_NAME = (process.env.DHS_DEVELOPER_NAME || '').trim();
 
-// Database Operations
-const readDatabase = () => {
-    if (!fs.existsSync(DB_FILE)) {
-        // Generate mock seed student data if file doesn't exist
-        const initialStudents = [
-            { id: 1, name: "Tinashe Moyo", schoolId: "DHS-2026-001", class: "Form 6", parentPhone: "+263771111111", parentEmail: "parent1@gmail.com", marks: { "Mathematics": 85, "English Literature": 74, "History": 91 } },
-            { id: 2, name: "Chipo Chivhu", schoolId: "DHS-2026-002", class: "Form 4", parentPhone: "+263772222222", parentEmail: "parent2@gmail.com", marks: { "Mathematics": 62, "English Language": 78, "Geography": 70 } }
-        ];
-        fs.writeFileSync(DB_FILE, JSON.stringify(initialStudents, null, 2), 'utf8');
+// PostgreSQL-backed storage. JSON files are imported once when each table is empty.
+let pgPool = null;
+let studentsCache = [];
+let staffCache = [];
+let dosaCache = [];
+const cloneRecords = (value) => JSON.parse(JSON.stringify(value));
+function readJsonSeed(file) {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (error) {
+        if (error && error.code === 'ENOENT') return [];
+        throw error;
     }
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-};
-
-const writeDatabase = (data) => fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
-
-const readStaffDatabase = () => {
-    if (!fs.existsSync(STAFF_FILE)) {
-        // Pre-seed database with a default authorized staff member
-        const initialStaff = [
-            { id: 1, name: "Principal Administrator", email: "admin@daramombe.ac.zw", role: "Head/Deputy" }
-        ];
-        fs.writeFileSync(STAFF_FILE, JSON.stringify(initialStaff, null, 2), 'utf8');
+}
+async function replaceCollection(table, records) {
+    if (!pgPool) {
+        if (table === 'students') return fs.writeFileSync(DB_FILE, JSON.stringify(records, null, 2), 'utf8');
+        if (table === 'staff') return fs.writeFileSync(STAFF_FILE, JSON.stringify(records, null, 2), 'utf8');
+        if (table === 'dosa_members') return fs.writeFileSync(DOSA_FILE, JSON.stringify(records, null, 2), 'utf8');
+        throw new Error('Unknown record collection');
     }
-    return JSON.parse(fs.readFileSync(STAFF_FILE, 'utf8'));
+    const config = {
+        students: { file: DB_FILE, id: 'id', name: 'name', extra: "school_id, full_name", values: r => [String(r.schoolId || ''), String(r.name || '')] },
+        staff: { file: STAFF_FILE, id: 'id', name: 'name', extra: "full_name, role", values: r => [String(r.name || ''), String(r.role || '')] },
+        dosa_members: { file: DOSA_FILE, id: 'id', name: 'name', extra: "full_name, email", values: r => [String(r.name || r.dosaName || ''), String(r.email || '')] }
+    }[table];
+    if (!config) throw new Error('Unknown record collection');
+    const client = await pgPool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM ' + table);
+        for (let i = 0; i < records.length; i++) {
+            const record = records[i];
+            const id = String(record[config.id] ?? (i + 1));
+            const extra = config.values(record);
+            if (table === 'students') {
+                await client.query('INSERT INTO students (id, school_id, full_name, sort_order, record) VALUES ($1,$2,$3,$4,$5::jsonb)',
+                    [id, extra[0], extra[1], i, JSON.stringify(record)]);
+            } else if (table === 'staff') {
+                await client.query('INSERT INTO staff (id, full_name, role, sort_order, record) VALUES ($1,$2,$3,$4,$5::jsonb)',
+                    [id, extra[0], extra[1], i, JSON.stringify(record)]);
+            } else {
+                await client.query('INSERT INTO dosa_members (id, full_name, email, sort_order, record) VALUES ($1,$2,$3,$4,$5::jsonb)',
+                    [id, extra[0], extra[1], i, JSON.stringify(record)]);
+            }
+        }
+        await client.query('COMMIT');
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally { client.release(); }
+}
+const readDatabase = () => pgPool ? cloneRecords(studentsCache) : readJsonSeed(DB_FILE);
+const readStaffDatabase = () => pgPool ? cloneRecords(staffCache) : readJsonSeed(STAFF_FILE);
+const readDosaDatabase = () => pgPool ? cloneRecords(dosaCache) : readJsonSeed(DOSA_FILE);
+const writeDatabase = async (data) => {
+    const snapshot = cloneRecords(data);
+    await replaceCollection('students', snapshot);
+    if (pgPool) studentsCache = snapshot;
 };
-
-const writeStaffDatabase = (data) => fs.writeFileSync(STAFF_FILE, JSON.stringify(data, null, 2), 'utf8');
+const writeStaffDatabase = async (data) => {
+    const snapshot = cloneRecords(data);
+    await replaceCollection('staff', snapshot);
+    if (pgPool) staffCache = snapshot;
+};
+const writeDosaDatabase = async (data) => {
+    const snapshot = cloneRecords(data);
+    await replaceCollection('dosa_members', snapshot);
+    if (pgPool) dosaCache = snapshot;
+};
+async function initializeStorage() {
+    if (!process.env.DATABASE_URL) {
+        console.warn('DATABASE_URL is not set. PostgreSQL migration is waiting for the Render database connection string; JSON fallback remains active.');
+        return;
+    }
+    pgPool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
+        max: 5,
+        connectionTimeoutMillis: 10000
+    });
+    await pgPool.query(`
+        CREATE TABLE IF NOT EXISTS students (
+            id TEXT PRIMARY KEY, school_id TEXT NOT NULL DEFAULT '', full_name TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL, record JSONB NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS staff (
+            id TEXT PRIMARY KEY, full_name TEXT NOT NULL DEFAULT '', role TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL, record JSONB NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS dosa_members (
+            id TEXT PRIMARY KEY, full_name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL, record JSONB NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS students_school_id_idx ON students (UPPER(school_id));
+        CREATE INDEX IF NOT EXISTS students_name_idx ON students (full_name);
+        CREATE INDEX IF NOT EXISTS staff_name_role_idx ON staff (full_name, role);
+    `);
+    const sources = [
+        { table: 'students', file: DB_FILE },
+        { table: 'staff', file: STAFF_FILE },
+        { table: 'dosa_members', file: DOSA_FILE }
+    ];
+    for (const source of sources) {
+        const count = await pgPool.query('SELECT COUNT(*)::int AS count FROM ' + source.table);
+        if (count.rows[0].count === 0) {
+            const seed = readJsonSeed(source.file);
+            if (seed.length) await replaceCollection(source.table, seed);
+            console.log('DHS PostgreSQL migration: imported ' + seed.length + ' records into ' + source.table + '.');
+        }
+    }
+    const [students, staff, dosa] = await Promise.all([
+        pgPool.query('SELECT record FROM students ORDER BY sort_order, id'),
+        pgPool.query('SELECT record FROM staff ORDER BY sort_order, id'),
+        pgPool.query('SELECT record FROM dosa_members ORDER BY sort_order, id')
+    ]);
+    studentsCache = students.rows.map(row => row.record);
+    staffCache = staff.rows.map(row => row.record);
+    dosaCache = dosa.rows.map(row => row.record);
+    console.log('DHS PostgreSQL ready: ' + studentsCache.length + ' students, ' + staffCache.length + ' staff, ' + dosaCache.length + ' DOSA records loaded.');
+}
 
 function emitStudentLedger(records) {
     const safeRecords = records.map(({ pinSalt, pinHash, ...student }) => student);
@@ -177,7 +271,7 @@ function createInvoicePdf(lines) {
     return Buffer.from(pdf, 'binary');
 }
 
-app.put('/api/head/students/:studentId/invoice', requireAuth, (req, res) => {
+app.put('/api/head/students/:studentId/invoice', requireAuth, async (req, res) => {
     if (req.sessionUser.role !== 'Head/Deputy') return res.status(403).json({ success: false, message: 'Only Head/Deputy staff may update invoices.' });
     const records = readDatabase();
     const student = records.find(item => String(item.id) === String(req.params.studentId));
@@ -217,7 +311,7 @@ app.put('/api/head/students/:studentId/invoice', requireAuth, (req, res) => {
         balanceDue: Math.max(0, Math.round((totalAmount - amountPaid) * 100) / 100),
         notes, updatedAt: new Date().toISOString(), updatedBy: req.sessionUser.email
     };
-    writeDatabase(records); emitStudentLedger(records);
+    await writeDatabase(records); emitStudentLedger(records);
     return res.json({ success: true, student: { id: student.id, name: student.name, schoolId: student.schoolId, class: student.class, invoice: student.invoice } });
 });
 
@@ -402,8 +496,7 @@ app.post('/api/auth/login', (req, res) => {
         const configuredPin = String(process.env.DHS_DEVELOPER_PIN || '');
         if (configuredName && configuredPin && name === configuredName && safeEqualText(pin, configuredPin)) identity = { name: configuredName, email: 'developer:' + configuredName, role: 'Developer' };
     } else if (role === 'DOSA') {
-        let members = [];
-        try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) {}
+        const members = readDosaDatabase();
         const member = members.find(item => String(item.name || item.dosaName || '').trim() === name && pinMatches(pin, item));
         if (member) identity = { name, email: member.email || name, role: 'DOSA', dosaName: name };
     }
@@ -413,7 +506,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.json({ success: true, name: identity.name, email: identity.email, role: identity.role, schoolId: identity.schoolId || '', dosaName: identity.dosaName || '', token });
 });
 
-app.post('/api/developer/student-pin', requireAuth, requireDeveloper, (req, res) => {
+app.post('/api/developer/student-pin', requireAuth, requireDeveloper, async (req, res) => {
     const schoolId = String(req.body && req.body.schoolId || '').trim();
     const name = String(req.body && req.body.name || '').trim();
     const pin = String(req.body && req.body.pin || '');
@@ -421,24 +514,23 @@ app.post('/api/developer/student-pin', requireAuth, requireDeveloper, (req, res)
     const records = readDatabase();
     const student = records.find(item => String(item.schoolId || '').toUpperCase() === schoolId.toUpperCase() && String(item.name || '').trim() === name);
     if (!student) return res.status(404).json({ success: false, message: 'No student matches that exact name and DHS ID.' });
-    Object.assign(student, hashPin(pin)); writeDatabase(records);
+    Object.assign(student, hashPin(pin)); await writeDatabase(records);
     return res.json({ success: true, message: 'Student/parent PIN updated. Give it privately to the verified family.' });
 });
 
-app.post('/api/developer/dosa-pin', requireAuth, requireDeveloper, (req, res) => {
+app.post('/api/developer/dosa-pin', requireAuth, requireDeveloper, async (req, res) => {
     const name = String(req.body && req.body.name || '').trim();
     const pin = String(req.body && req.body.pin || '');
     if (!name || !validPin(pin)) return res.status(400).json({ success: false, message: 'Enter the exact registered DOSA name and an 8–32 character PIN.' });
-    let members;
-    try { members = JSON.parse(fs.readFileSync(DOSA_FILE, 'utf8')); } catch (_) { return res.status(500).json({ success: false, message: 'DOSA member records could not be read.' }); }
+    const members = readDosaDatabase();
     const member = members.find(item => String(item.name || item.dosaName || '').trim() === name);
     if (!member) return res.status(404).json({ success: false, message: 'No DOSA member matches that exact registered name.' });
     Object.assign(member, hashPin(pin));
-    fs.writeFileSync(DOSA_FILE, JSON.stringify(members, null, 2), 'utf8');
+    await writeDosaDatabase(members);
     return res.json({ success: true, message: 'DOSA member PIN updated.' });
 });
 
-app.post('/api/developer/staff-pin', requireAuth, requireDeveloper, (req, res) => {
+app.post('/api/developer/staff-pin', requireAuth, requireDeveloper, async (req, res) => {
     const name = String(req.body && req.body.name || '').trim();
     const role = String(req.body && req.body.role || '');
     const pin = String(req.body && req.body.pin || '');
@@ -446,12 +538,12 @@ app.post('/api/developer/staff-pin', requireAuth, requireDeveloper, (req, res) =
     const faculty = readStaffDatabase();
     const staff = faculty.find(item => String(item.name || '').trim() === name && item.role === role);
     if (!staff) return res.status(404).json({ success: false, message: 'No staff member matches that exact name and role.' });
-    Object.assign(staff, hashPin(pin)); writeStaffDatabase(faculty);
+    Object.assign(staff, hashPin(pin)); await writeStaffDatabase(faculty);
     return res.json({ success: true, message: 'Staff PIN updated.' });
 });
 
 // Developer Matrix Infrastructure Operations
-app.post('/api/developer/add-student', requireAuth, requireDeveloper, (req, res) => {
+app.post('/api/developer/add-student', requireAuth, requireDeveloper, async (req, res) => {
     const { name, schoolId, formClass, parentPhone, parentEmail, pin } = req.body || {};
     const records = readDatabase();
     if (typeof name !== 'string' || !name.trim() || typeof schoolId !== 'string' || !/^DHS-[A-Z0-9-]{4,40}$/i.test(schoolId.trim()) || !validPin(String(pin || ''))) {
@@ -467,13 +559,13 @@ app.post('/api/developer/add-student', requireAuth, requireDeveloper, (req, res)
     };
 
     records.push(targetNode);
-    writeDatabase(records);
+    await writeDatabase(records);
     emitStudentLedger(records); // Send only records this authenticated role is allowed to see
     const { pinSalt, pinHash, ...safeStudent } = targetNode;
     res.json({ success: true, student: safeStudent });
 });
 
-app.post('/api/developer/add-staff', requireAuth, requireDeveloper, (req, res) => {
+app.post('/api/developer/add-staff', requireAuth, requireDeveloper, async (req, res) => {
     const { name, email, role, pin } = req.body || {};
     const faculty = readStaffDatabase();
     if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !email.trim() || !['Teacher', 'Head/Deputy'].includes(role) || !validPin(String(pin || ''))) {
@@ -483,7 +575,7 @@ app.post('/api/developer/add-staff', requireAuth, requireDeveloper, (req, res) =
     if (collisionCheck) return res.status(400).json({ success: false, message: 'A staff account already uses that email.' });
     const targetStaff = { id: Date.now(), name: name.trim(), email: email.trim().toLowerCase(), role, ...hashPin(String(pin)) };
     faculty.push(targetStaff);
-    writeStaffDatabase(faculty);
+    await writeStaffDatabase(faculty);
     io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
     const { pinSalt, pinHash, ...safeStaff } = targetStaff;
     res.json({ success: true, staff: safeStaff });
@@ -515,7 +607,7 @@ io.on('connection', (socket) => {
     });
 
     // Student Mark Modifying Transaction Block
-    socket.on('update_student_marks', (payload) => {
+    socket.on('update_student_marks', async (payload) => {
         if (!['Teacher', 'Head/Deputy', 'Developer'].includes(socket.sessionUser.role)) return;
         const { id, marks } = payload;
         let ledger = readDatabase();
@@ -523,18 +615,18 @@ io.on('connection', (socket) => {
 
         if (entityIndex !== -1) {
             ledger[entityIndex].marks = marks;
-            writeDatabase(ledger);
+            await writeDatabase(ledger);
             emitStudentLedger(ledger); // Push role-filtered updates to connected clients
         }
     });
 
     // Developer Purge Handlers
-    socket.on('developer_remove_student', (id) => {
+    socket.on('developer_remove_student', async (id) => {
         if (socket.sessionUser.role !== 'Developer') return;
         let ledger = readDatabase();
         let targetStudent = ledger.find(s => s.id === id);
         ledger = ledger.filter(s => s.id !== id);
-        writeDatabase(ledger);
+        await writeDatabase(ledger);
         
         emitStudentLedger(ledger);
         if (targetStudent) {
@@ -542,12 +634,12 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('developer_remove_staff', (id) => {
+    socket.on('developer_remove_staff', async (id) => {
         if (socket.sessionUser.role !== 'Developer') return;
         let faculty = readStaffDatabase();
         let targetStaff = faculty.find(f => f.id === id);
         faculty = faculty.filter(f => f.id !== id);
-        writeStaffDatabase(faculty);
+        await writeStaffDatabase(faculty);
         
         io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
         if (targetStaff) {
@@ -590,10 +682,15 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`=======================================================`);
-    console.log(`  DARAMOMBE HIGH SCHOOL PORTAL INITIALIZED ON PORT [${PORT}]`);
-    console.log(`  Running Architecture Profile Mode 2026`);
-    if (!SESSION_SECRET) console.warn('WARNING: SESSION_SECRET is unset. Configure a long random secret in the deployment environment.');
-    console.log(`=======================================================`);
+initializeStorage().then(() => {
+    server.listen(PORT, () => {
+        console.log(`=======================================================`);
+        console.log(`  DARAMOMBE HIGH SCHOOL PORTAL INITIALIZED ON PORT [${PORT}]`);
+        console.log(`  Running Architecture Profile Mode 2026`);
+        if (!SESSION_SECRET) console.warn('WARNING: SESSION_SECRET is unset. Configure a long random secret in the deployment environment.');
+        console.log(`=======================================================`);
+    });
+}).catch(error => {
+    console.error('DHS storage initialization failed; refusing to start with an unsafe/partial database state:', error.message);
+    process.exit(1);
 });
