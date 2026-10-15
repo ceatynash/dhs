@@ -49,6 +49,8 @@
             <p class="text-xs text-slate-400 text-center">Choose your registered portal role, then continue with the Google account registered to that role. Student records stay protected by server-side access checks.</p>
             <div id="google-signin-button" class="w-full flex justify-center min-h-11" aria-label="Sign in with Google"></div>
             <p id="google-signin-status" class="text-xs text-center text-slate-400" role="status" aria-live="polite">Loading secure Google Sign-In…</p>
+            <button id="local-preview-button" type="button" class="hidden w-full border border-amber-500/60 text-amber-300 hover:bg-amber-500/10 rounded-lg px-4 py-2 text-sm font-bold" aria-describedby="local-preview-note">Open Local Development Preview</button>
+            <p id="local-preview-note" class="hidden text-[11px] text-slate-500 text-center">Local-only preview. Do not use real student data.</p>
         </form>
     </div>
 
@@ -267,6 +269,51 @@
                 status.classList.add('text-rose-400');
             }
         }
+
+        async function initializeLocalPreview() {
+            const button = document.getElementById('local-preview-button');
+            const note = document.getElementById('local-preview-note');
+            try {
+                const response = await fetch('/api/dev/preview-status', { cache: 'no-store' });
+                const config = await response.json();
+                if (response.ok && config.enabled === true) {
+                    button.classList.remove('hidden');
+                    note.classList.remove('hidden');
+                }
+            } catch (_) {
+                // Preview stays hidden if the server does not explicitly enable it.
+            }
+
+            button.addEventListener('click', async () => {
+                button.disabled = true;
+                button.textContent = 'Opening preview…';
+                try {
+                    const response = await fetch('/api/dev/preview-session', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        cache: 'no-store',
+                        body: JSON.stringify({})
+                    });
+                    const data = await response.json();
+                    if (!response.ok || !data.success || !data.token) {
+                        throw new Error(data.message || 'Local preview is unavailable.');
+                    }
+                    sessionToken = data.token;
+                    currentSessionEmail = data.email;
+                    currentSessionRole = data.role;
+                    currentSessionDosaName = '';
+                    socket.auth = { token: sessionToken };
+                    socket.connect();
+                    initializeRuntimeDashboardInterface();
+                } catch (error) {
+                    button.disabled = false;
+                    button.textContent = 'Open Local Development Preview';
+                    alert(error.message || 'Could not open local preview.');
+                }
+            });
+        }
+
+        initializeLocalPreview();
 
         async function handleGoogleCredential(response) {
             const status = document.getElementById('google-signin-status');
