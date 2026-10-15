@@ -433,7 +433,9 @@ app.post('/api/assistant/chat', async (req, res) => {
         'Parent': 'Help parents understand portal features, school communications, and how to download invoices. Do not request passwords, payment card details, or private credentials.',
         'DOSA': 'Help with alumni association communication, events, and portal usage. Do not expose student records or staff-only information.'
     };
-    if (!apiKey) {
+    // Public visitors always use the no-key fallback, even if a paid API key is configured.
+    // Only authenticated portal sessions may invoke a configured hosted model.
+    if (!apiKey || !req.sessionUser) {
         const lastUserMessage = messages.filter(message => message.role === 'user').slice(-1)[0];
         const answer = localDhsAssistantReply(lastUserMessage && lastUserMessage.content, role);
         res.set('Cache-Control', 'no-store');
