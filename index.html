@@ -105,11 +105,32 @@
                                     <th class="p-2">School ID</th>
                                     <th class="p-2">Class Level</th>
                                     <th class="p-2 text-center">Academic Report Mark Modifiers</th>
+                                    <th class="p-2 text-center">School Fee Invoice</th>
                                 </tr>
                             </thead>
                             <tbody id="student-matrix-rows" class="divide-y divide-slate-800/50"></tbody>
                         </table>
                     </div>
+                </div>
+
+                <div id="head-invoice-editor" class="hidden bg-slate-950 border border-amber-700/60 rounded-xl p-4 space-y-3">
+                    <div class="flex justify-between items-center gap-3 border-b border-slate-800 pb-2">
+                        <div><h4 class="text-sm font-black uppercase text-amber-400">Next-Term Invoice Editor</h4><p id="head-invoice-editor-caption" class="text-xs text-slate-400 mt-1">Only Head/Deputy can save official invoice changes.</p></div>
+                        <button type="button" onclick="closeInvoiceEditor()" class="text-xs px-3 py-2 rounded border border-slate-700 text-slate-300">Close</button>
+                    </div>
+                    <form id="head-invoice-form" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <input type="hidden" id="head-invoice-student-id">
+                        <label class="text-xs text-slate-300">Student full name<input id="head-invoice-student-name" maxlength="120" required class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></label>
+                        <label class="text-xs text-slate-300">School ID<input id="head-invoice-school-id" maxlength="60" required class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></label>
+                        <label class="text-xs text-slate-300">Class / Form<input id="head-invoice-class" maxlength="60" required class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></label>
+                        <label class="text-xs text-slate-300">Following term / school year<input id="head-invoice-term" maxlength="80" placeholder="e.g. Term 1, 2027" required class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></label>
+                        <label class="text-xs text-slate-300">Payment due date<input id="head-invoice-due-date" type="date" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></label>
+                        <label class="text-xs text-slate-300">Currency<select id="head-invoice-currency" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"><option value="USD">USD</option><option value="ZWL">ZWL</option><option value="ZWG">ZWG</option><option value="ZAR">ZAR</option><option value="GBP">GBP</option></select></label>
+                        <label class="text-xs text-slate-300">Amount already paid<input id="head-invoice-paid" type="number" min="0" step="0.01" value="0" required class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></label>
+                        <label class="text-xs text-slate-300 md:col-span-2">Fee items (one per line: description | amount)<textarea id="head-invoice-items" rows="6" placeholder="Tuition fees | 250&#10;Examination fees | 35&#10;Boarding fees | 0" required class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></textarea><span class="block text-[11px] text-slate-500 mt-1">Enter the actual fees for the selected term. Use one item per line.</span></label>
+                        <label class="text-xs text-slate-300 md:col-span-2">Note to parent (optional)<textarea id="head-invoice-notes" rows="2" maxlength="500" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-white"></textarea></label>
+                        <div class="md:col-span-2 flex flex-wrap items-center justify-between gap-3"><p id="head-invoice-total-preview" class="text-sm font-bold text-amber-300">Total: —</p><button type="submit" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm px-4 py-2 rounded-lg">Save and publish invoice</button></div>
+                    </form>
                 </div>
 
                 <div id="panel-developer" class="hidden space-y-6">
@@ -412,6 +433,74 @@
             }).join('');
         }
 
+        function openInvoiceEditor(student) {
+            if (currentSessionRole !== 'Head/Deputy' || !sessionToken) { alert('Only a signed-in Head/Deputy account can edit official invoices. Preview mode is read-only.'); return; }
+            const invoice = student.invoice || {};
+            document.getElementById('head-invoice-student-id').value = student.id;
+            document.getElementById('head-invoice-student-name').value = invoice.studentName || student.name || '';
+            document.getElementById('head-invoice-school-id').value = invoice.schoolId || student.schoolId || '';
+            document.getElementById('head-invoice-class').value = invoice.studentClass || student.class || '';
+            document.getElementById('head-invoice-term').value = invoice.term || '';
+            document.getElementById('head-invoice-due-date').value = invoice.dueDate || '';
+            document.getElementById('head-invoice-currency').value = invoice.currency || 'USD';
+            document.getElementById('head-invoice-paid').value = Number(invoice.amountPaid || 0);
+            document.getElementById('head-invoice-items').value = (invoice.items || []).map(item => item.description + ' | ' + item.amount).join('\n');
+            document.getElementById('head-invoice-notes').value = invoice.notes || '';
+            document.getElementById('head-invoice-editor-caption').textContent = student.name + ' · ' + student.schoolId + ' · Parent-linked invoice';
+            document.getElementById('head-invoice-editor').classList.remove('hidden');
+            updateInvoiceTotalPreview();
+            document.getElementById('head-invoice-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        function closeInvoiceEditor() { document.getElementById('head-invoice-editor').classList.add('hidden'); }
+        function parseInvoiceItems() {
+            return document.getElementById('head-invoice-items').value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+                const divider = line.lastIndexOf('|');
+                if (divider < 1) throw new Error('Each fee line must use: description | amount');
+                const description = line.slice(0, divider).trim(), amountText = line.slice(divider + 1).trim(), amount = Number(amountText);
+                if (!description || !amountText || !Number.isFinite(amount) || amount < 0) throw new Error('Each fee line needs a description and a valid non-negative amount.');
+                return { description, amount };
+            });
+        }
+        function updateInvoiceTotalPreview() {
+            const label = document.getElementById('head-invoice-total-preview');
+            try {
+                const total = parseInvoiceItems().reduce((sum, item) => sum + item.amount, 0), paid = Number(document.getElementById('head-invoice-paid').value || 0);
+                label.textContent = 'Total: ' + document.getElementById('head-invoice-currency').value + ' ' + total.toFixed(2) + ' · Balance: ' + Math.max(0, total - paid).toFixed(2);
+            } catch (_) { label.textContent = 'Check fee lines: description | amount'; }
+        }
+        document.getElementById('head-invoice-items').addEventListener('input', updateInvoiceTotalPreview);
+        document.getElementById('head-invoice-paid').addEventListener('input', updateInvoiceTotalPreview);
+        document.getElementById('head-invoice-currency').addEventListener('change', updateInvoiceTotalPreview);
+        document.getElementById('head-invoice-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (currentSessionRole !== 'Head/Deputy' || !sessionToken) { alert('Only a signed-in Head/Deputy account can save invoices.'); return; }
+            let items;
+            try { items = parseInvoiceItems(); } catch (error) { alert(error.message); return; }
+            const studentId = document.getElementById('head-invoice-student-id').value;
+            const body = {
+                studentName: document.getElementById('head-invoice-student-name').value.trim(),
+                schoolId: document.getElementById('head-invoice-school-id').value.trim(),
+                studentClass: document.getElementById('head-invoice-class').value.trim(),
+                term: document.getElementById('head-invoice-term').value.trim(),
+                dueDate: document.getElementById('head-invoice-due-date').value,
+                currency: document.getElementById('head-invoice-currency').value,
+                amountPaid: Number(document.getElementById('head-invoice-paid').value || 0),
+                items, notes: document.getElementById('head-invoice-notes').value.trim()
+            };
+            try {
+                const response = await fetch('/api/head/students/' + encodeURIComponent(studentId) + '/invoice', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sessionToken },
+                    body: JSON.stringify(body)
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.message || 'Invoice could not be saved.');
+                alert('Invoice saved. The linked parent can now download the updated PDF.');
+                closeInvoiceEditor();
+                await syncDatabaseFeeds();
+            } catch (error) { alert(error.message || 'Invoice save failed. Please try again.'); }
+        });
+
         async function downloadChildInvoice(studentId) {
             if (!sessionToken) {
                 alert('Secure invoice downloads require a signed-in parent account. The current dashboard preview uses sample data only.');
@@ -454,6 +543,9 @@
                         <button onclick="openMarksEditingModal(${JSON.stringify(s).replace(/"/g, '&quot;')})" class="bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[10px] uppercase font-bold px-2 py-1 rounded transition text-amber-500">
                             Edit Progress
                         </button>
+                    </td>
+                    <td class="p-2 text-center">
+                        ${currentSessionRole === 'Head/Deputy' ? `<button type="button" onclick="openInvoiceEditor(${JSON.stringify(s).replace(/"/g, '&quot;')})" class="bg-amber-600 hover:bg-amber-500 text-slate-950 text-[10px] uppercase font-black px-2 py-1 rounded">Manage invoice</button>` : '<span class="text-slate-600">Head/Deputy only</span>'}
                     </td>
                 </tr>
             `).join('');
