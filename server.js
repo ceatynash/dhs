@@ -390,7 +390,7 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
 // AI assistant: authenticated, role-aware, and deliberately isolated from student records.
 const assistantRequestTimes = new Map();
 const ASSISTANT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const ASSISTANT_API_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/+$/, '');
+const ASSISTANT_API_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
 function localDhsAssistantReply(question, role) {
     const q = String(question || '').toLowerCase();
     if (/\b(mark|result|grade|score|report card)\b/.test(q)) return 'For official marks and results, sign in to the DHS portal and open the student results area. I cannot read or change live marks. If a mark looks wrong, contact the subject teacher or school administration.';
