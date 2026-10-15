@@ -792,7 +792,8 @@ app.get('/api/developer/student-import/notifications/:jobId', requireAuth, requi
     res.set('Cache-Control', 'no-store');
     const cfg = parentNotificationConfig();
     return res.json({
-        success: true, completed: job.completed, summary: job.summary, results: job.items,
+        success: true, completed: job.completed, summary: job.summary,
+        results: job.items.map(item => ({ name: item.name, schoolId: item.schoolId, sent: !!item.sent, method: item.method || '', reason: item.reason || '' })),
         failedPins: job.completed ? job.failedPins : [],
         deliveryConfigured: cfg.enabled && (cfg.smtpReady || cfg.twilioReady)
     });
