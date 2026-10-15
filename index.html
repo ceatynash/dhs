@@ -826,11 +826,6 @@
             event.preventDefault();
             const text = dhsAiInput.value.trim();
             if (!text || dhsAiSend.disabled) return;
-            if (!sessionToken) {
-                addDhsAiMessage('assistant', 'You are viewing the read-only dashboard preview. Sign in with your Google account to use the live AI assistant. Preview mode contains sample data only.');
-                dhsAiInput.value = '';
-                return;
-            }
             dhsAiMessages.push({ role: 'user', content: text });
             addDhsAiMessage('user', text);
             dhsAiInput.value = '';
