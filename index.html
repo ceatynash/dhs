@@ -65,9 +65,53 @@
         -webkit-backdrop-filter: blur(8px);
       }
 
+    
+      /* User-selectable light/dark theme */
+      :root { color-scheme: light; }
+      html[data-theme="dark"] { color-scheme: dark; background:#0b1220; }
+      html[data-theme="dark"] body { background-color:#0b1220 !important; color:#e5e7eb !important; }
+      html[data-theme="dark"] .bg-white,
+      html[data-theme="dark"] .bg-slate-50,
+      html[data-theme="dark"] .bg-slate-100 { background-color:#111827 !important; }
+      html[data-theme="dark"] .bg-slate-200 { background-color:#1f2937 !important; }
+      html[data-theme="dark"] .bg-slate-300 { background-color:#334155 !important; }
+      html[data-theme="dark"] .bg-slate-800 { background-color:#111827 !important; }
+      html[data-theme="dark"] .bg-slate-900 { background-color:#0b1220 !important; }
+      html[data-theme="dark"] .bg-slate-950 { background-color:#070d17 !important; }
+      html[data-theme="dark"] .text-slate-950,
+      html[data-theme="dark"] .text-slate-900,
+      html[data-theme="dark"] .text-slate-800,
+      html[data-theme="dark"] .text-slate-700 { color:#f1f5f9 !important; }
+      html[data-theme="dark"] .text-slate-600,
+      html[data-theme="dark"] .text-slate-500,
+      html[data-theme="dark"] .text-gray-600,
+      html[data-theme="dark"] .text-gray-500 { color:#cbd5e1 !important; }
+      html[data-theme="dark"] .border-slate-100,
+      html[data-theme="dark"] .border-slate-200,
+      html[data-theme="dark"] .border-slate-300,
+      html[data-theme="dark"] .border-gray-200 { border-color:#334155 !important; }
+      html[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+      html[data-theme="dark"] select,
+      html[data-theme="dark"] textarea { background-color:#0f172a !important; color:#f8fafc !important; border-color:#475569 !important; }
+      html[data-theme="dark"] input::placeholder,
+      html[data-theme="dark"] textarea::placeholder { color:#94a3b8 !important; }
+      html[data-theme="dark"] .shadow,
+      html[data-theme="dark"] .shadow-md,
+      html[data-theme="dark"] .shadow-lg,
+      html[data-theme="dark"] .shadow-xl { --tw-shadow-color: #000 !important; }
+      #dhs-theme-toggle { position:fixed; top:12px; right:12px; z-index:9999; display:flex; align-items:center; gap:7px; padding:9px 12px; border:1px solid #64748b; border-radius:999px; background:#fff; color:#0f172a; box-shadow:0 4px 14px #0002; font:700 12px/1.2 system-ui,sans-serif; cursor:pointer; }
+      html[data-theme="dark"] #dhs-theme-toggle { background:#1e293b; color:#f8fafc; border-color:#475569; }
+      #dhs-theme-toggle:focus-visible { outline:3px solid #f59e0b; outline-offset:3px; }
+      @media (max-width:480px) { #dhs-theme-toggle { top:8px; right:8px; padding:8px 10px; } }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
+    <button id="dhs-theme-toggle" type="button" aria-label="Switch to dark theme" aria-pressed="false">
+      <span id="dhs-theme-icon" aria-hidden="true">🌙</span>
+      <span id="dhs-theme-label">Dark theme</span>
+    </button>
+
 
     <div id="auth-card" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl mt-8">
         <div class="text-center mb-6">
@@ -362,6 +406,40 @@
     </div>
 
 <script>
+
+        // Theme preference is stored per browser/device, so every portal user can choose independently.
+        (function initDhsTheme() {
+            const key = 'dhs-portal-theme';
+            const toggle = document.getElementById('dhs-theme-toggle');
+            const icon = document.getElementById('dhs-theme-icon');
+            const label = document.getElementById('dhs-theme-label');
+            if (!toggle || !icon || !label) return;
+
+            function applyTheme(theme) {
+                const dark = theme === 'dark';
+                document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+                document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+                icon.textContent = dark ? '☀️' : '🌙';
+                label.textContent = dark ? 'Light theme' : 'Dark theme';
+                toggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
+                toggle.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+            }
+
+            let saved = 'light';
+            try {
+                const preference = localStorage.getItem(key);
+                if (preference === 'dark' || preference === 'light') saved = preference;
+            } catch (_) {}
+            applyTheme(saved);
+
+            toggle.addEventListener('click', function () {
+                const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                applyTheme(next);
+                try { localStorage.setItem(key, next); } catch (_) {}
+            });
+        })();
+
+
         let sessionToken = '';
         const socket = io({ autoConnect: false, auth: { token: '' } });
         
