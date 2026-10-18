@@ -25,10 +25,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # Use npm install while the existing lockfile is being reconciled with package.json.
-      # Follow-up should commit the regenerated lockfile and switch this step to npm ci.
+      # The committed lockfile is out of sync with package.json. Reconcile it in CI and
+      # apply compatible security updates; the regenerated lock must still be committed.
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Apply compatible dependency security fixes
+        run: npm audit fix --ignore-scripts --no-fund
       - name: Syntax check
         run: node --check server.js
       - name: Regression tests
