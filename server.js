@@ -248,13 +248,36 @@ async function initializeStorage() {
     console.log('DHS PostgreSQL ready: ' + studentsCache.length + ' students, ' + staffCache.length + ' staff, ' + dosaCache.length + ' DOSA records loaded.');
 }
 
+function studentPortalView(student) {
+    // Student/parent accounts receive only the learner's own academic and invoice data.
+    // Never serialize guardian contact details, authentication hashes, or unrelated fields.
+    return {
+        id: student.id,
+        name: student.name,
+        schoolId: student.schoolId,
+        class: student.class || '',
+        marks: student.marks && typeof student.marks === 'object' ? student.marks : {},
+        invoice: student.invoice && typeof student.invoice === 'object' ? student.invoice : null,
+        fees: Array.isArray(student.fees) ? student.fees : [],
+        feeCurrency: student.feeCurrency || 'USD',
+        amountPaid: Number.isFinite(Number(student.amountPaid)) ? Number(student.amountPaid) : 0
+    };
+}
+
+function studentOwnedBySession(student, user) {
+    // Current DHS family credentials are per-student credentials: a Parent/Student
+    // session is bound to exactly one registered DHS ID, never to the whole school.
+    return !!student && !!user && ['Parent', 'Student'].includes(user.role) &&
+        String(student.schoolId || '').trim().toUpperCase() === String(user.schoolId || '').trim().toUpperCase();
+}
+
 function emitStudentLedger(records) {
     const safeRecords = records.map(({ pinSalt, pinHash, ...student }) => student);
     for (const client of io.sockets.sockets.values()) {
         const user = client.sessionUser;
         if (!user) continue;
         if (user.role === 'Parent' || user.role === 'Student') {
-            client.emit('ledger_sync_update', safeRecords.filter(s => String(s.schoolId || '').toUpperCase() === String(user.schoolId || '').toUpperCase()));
+            client.emit('ledger_sync_update', safeRecords.filter(s => studentOwnedBySession(s, user)).map(studentPortalView));
         } else if (['Teacher', 'Head/Deputy', 'Developer'].includes(user.role)) {
             client.emit('ledger_sync_update', safeRecords);
         }
@@ -267,9 +290,13 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/students', requireAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store, private');
+    res.set('Pragma', 'no-cache');
     const records = readDatabase();
     if (req.sessionUser.role === 'Parent' || req.sessionUser.role === 'Student') {
-        return res.json(records.filter(student => String(student.schoolId || '').toUpperCase() === String(req.sessionUser.schoolId || '').toUpperCase()).map(({ pinSalt, pinHash, ...student }) => student));
+        // Do not return classmates or all records sharing a school context.
+        const ownRecord = records.find(student => studentOwnedBySession(student, req.sessionUser));
+        return res.json(ownRecord ? [studentPortalView(ownRecord)] : []);
     }
     if (req.sessionUser.role === 'DOSA') return res.json([]);
     if (['Teacher', 'Head/Deputy', 'Developer'].includes(req.sessionUser.role)) {
@@ -370,7 +397,7 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
     }
     const student = readDatabase().find(item =>
         String(item.id) === String(req.params.studentId) &&
-        String(item.schoolId || '').toUpperCase() === String(req.sessionUser.schoolId || '').toUpperCase()
+        studentOwnedBySession(item, req.sessionUser)
     );
     if (!student) return res.status(404).json({ success: false, message: 'The linked student record was not found.' });
 
@@ -429,7 +456,9 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
     res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': 'attachment; filename="DHS-Invoice-' + safeName + '.pdf"',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store, private',
+        'Pragma': 'no-cache',
+        'X-Content-Type-Options': 'nosniff'
     });
     return res.send(pdf);
 });
