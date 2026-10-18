@@ -169,6 +169,25 @@
       #dhs-theme-picker:focus-visible { outline:3px solid var(--dhs-accent-strong); outline-offset:3px; }
       @media(max-width:480px){ #dhs-theme-picker{top:54px;right:8px;width:170px;} }
 
+
+      /* Make Classic Light genuinely light while retaining legible controls. */
+      html[data-theme="light"] body { background-color:#f8fafc!important; color:#0f172a!important; }
+      html[data-theme="light"] .bg-slate-950 { background-color:#f1f5f9!important; }
+      html[data-theme="light"] .bg-slate-900, html[data-theme="light"] .bg-slate-800 { background-color:#ffffff!important; }
+      html[data-theme="light"] .text-slate-100, html[data-theme="light"] .text-slate-200,
+      html[data-theme="light"] .text-slate-300 { color:#0f172a!important; }
+      html[data-theme="light"] .text-slate-400, html[data-theme="light"] .text-slate-500 { color:#475569!important; }
+      html[data-theme="light"] .border-slate-800, html[data-theme="light"] .border-slate-700,
+      html[data-theme="light"] .border-slate-600 { border-color:#cbd5e1!important; }
+      html[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]),
+      html[data-theme="light"] select, html[data-theme="light"] textarea {
+        background-color:#ffffff!important; color:#0f172a!important; border-color:#cbd5e1!important;
+      }
+      html[data-theme="light"] #auth-card { background:rgba(255,255,255,.94)!important; border-color:#d97706!important; }
+      html[data-theme="light"] body:has(#auth-card:not(.hidden)) {
+        background-image:linear-gradient(rgba(248,250,252,.70),rgba(248,250,252,.86)),var(--dhs-photo)!important;
+      }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
