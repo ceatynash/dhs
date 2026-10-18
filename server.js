@@ -915,17 +915,75 @@ io.on('connection', (socket) => {
         io.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
     });
 
-    // Student Mark Modifying Transaction Block
-    socket.on('update_student_marks', async (payload) => {
-        if (!['Teacher', 'Head/Deputy', 'Developer'].includes(socket.sessionUser.role)) return;
-        const { id, marks } = payload;
-        let ledger = readDatabase();
-        let entityIndex = ledger.findIndex(s => s.id === id);
+    // Student marks can only be changed by authorized roles and within their scope.
+    socket.on('update_student_marks', async (payload, acknowledge) => {
+        const reply = (result) => {
+            if (typeof acknowledge === 'function') acknowledge(result);
+        };
+        try {
+            const user = socket.sessionUser;
+            if (!user || !['Teacher', 'Head/Deputy', 'Developer'].includes(user.role)) {
+                return reply({ success: false, message: 'You are not authorized to edit student marks.' });
+            }
+            if (!payload || (typeof payload.id !== 'string' && typeof payload.id !== 'number') ||
+                !payload.marks || typeof payload.marks !== 'object' || Array.isArray(payload.marks)) {
+                return reply({ success: false, message: 'Invalid mark update request.' });
+            }
 
-        if (entityIndex !== -1) {
-            ledger[entityIndex].marks = marks;
+            const ledger = readDatabase();
+            const entityIndex = ledger.findIndex(s => String(s.id) === String(payload.id));
+            if (entityIndex === -1) return reply({ success: false, message: 'Student record not found.' });
+            const student = ledger[entityIndex];
+            const currentMarks = student.marks && typeof student.marks === 'object' && !Array.isArray(student.marks)
+                ? student.marks : {};
+
+            // Teachers must have explicit class and subject assignments on their staff record.
+            if (user.role === 'Teacher') {
+                const staff = readStaffDatabase().find(item =>
+                    item.role === 'Teacher' &&
+                    String(item.name || '').trim() === String(user.name || '').trim() &&
+                    String(item.email || item.name || '').trim().toLowerCase() === String(user.email || user.name || '').trim().toLowerCase()
+                );
+                if (!staff) return reply({ success: false, message: 'Your teacher account could not be verified.' });
+
+                const classAssignments = staff.assignedClasses || staff.classes || staff.classAssignments;
+                const subjectAssignments = staff.assignedSubjects || staff.subjects || staff.subjectAssignments;
+                const asList = value => Array.isArray(value) ? value : (typeof value === 'string' ? value.split(',').map(v => v.trim()).filter(Boolean) : []);
+                const classes = asList(classAssignments).map(v => String(v).trim().toUpperCase());
+                const subjects = asList(subjectAssignments).map(v => String(v).trim().toUpperCase());
+                if (!classes.length || !subjects.length ||
+                    !classes.includes(String(student.class || '').trim().toUpperCase())) {
+                    return reply({ success: false, message: 'You are not assigned to this student’s class.' });
+                }
+                const submittedSubjects = Object.keys(payload.marks);
+                if (submittedSubjects.some(subject => !subjects.includes(subject.trim().toUpperCase()))) {
+                    return reply({ success: false, message: 'You are not assigned to edit one or more submitted subjects.' });
+                }
+            }
+
+            const currentSubjects = Object.keys(currentMarks);
+            const submittedSubjects = Object.keys(payload.marks);
+            if (!currentSubjects.length || submittedSubjects.length !== currentSubjects.length ||
+                currentSubjects.some(subject => !Object.prototype.hasOwnProperty.call(payload.marks, subject)) ||
+                submittedSubjects.some(subject => !Object.prototype.hasOwnProperty.call(currentMarks, subject))) {
+                return reply({ success: false, message: 'Marks must contain exactly the student’s existing subjects.' });
+            }
+            const validatedMarks = {};
+            for (const subject of currentSubjects) {
+                const value = payload.marks[subject];
+                if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 100) {
+                    return reply({ success: false, message: 'Each mark must be a whole number from 0 to 100.' });
+                }
+                validatedMarks[subject] = value;
+            }
+
+            student.marks = validatedMarks;
             await writeDatabase(ledger);
-            emitStudentLedger(ledger); // Push role-filtered updates to connected clients
+            emitStudentLedger(ledger);
+            return reply({ success: true, message: 'Student marks saved successfully.' });
+        } catch (error) {
+            console.error('Student mark update failed:', error && error.message ? error.message : 'Unknown error');
+            return reply({ success: false, message: 'Marks could not be saved. Please try again.' });
         }
     });
 
