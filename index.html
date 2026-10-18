@@ -344,6 +344,22 @@
         #main-interface *, #main-interface *::before, #main-interface *::after { scroll-behavior:auto!important; }
       }
 
+    
+      /* Creator attribution across login and authenticated portal views */
+      #dhs-creator-trademark {
+        width: 100%;
+        max-width: 1440px;
+        margin: 28px auto 8px;
+        padding: 12px 16px;
+        text-align: center;
+        color: var(--dhs-muted, #94a3b8);
+        font-size: 11px;
+        letter-spacing: .08em;
+        line-height: 1.6;
+        border-top: 1px solid var(--dhs-border, rgb(148 163 184 / .22));
+      }
+      #dhs-creator-trademark strong { color: var(--dhs-accent, #f59e0b); font-weight: 800; }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
@@ -1422,5 +1438,6 @@
 
 
     </script>
+    <footer id="dhs-creator-trademark" aria-label="Portal creator attribution">Created by <strong>Tinashe Maguwa™</strong></footer>
 </body>
 </html>
