@@ -13,9 +13,22 @@ require('dotenv').config();
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
+const allowedSocketOrigins = String(process.env.ALLOWED_ORIGIN || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
 const io = new Server(server, {
-    cors: { origin: process.env.ALLOWED_ORIGIN || true }
+    // Same-origin works by default. Cross-origin clients must be explicitly allow-listed.
+    cors: allowedSocketOrigins.length
+        ? { origin: allowedSocketOrigins, credentials: false }
+        : { origin: false },
+    maxHttpBufferSize: 64 * 1024,
+    pingTimeout: 20000,
+    pingInterval: 25000,
+    connectTimeout: 10000
 });
+const MAX_SOCKETS_PER_IP = 8;
+const socketsPerIp = new Map();
 
 app.use(express.json({ limit: '32kb' }));
 const pdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
@@ -198,7 +211,10 @@ const writeDosaDatabase = async (data) => {
 };
 async function initializeStorage() {
     if (!process.env.DATABASE_URL) {
-        console.warn('DATABASE_URL is not set. PostgreSQL migration is waiting for the Render database connection string; JSON fallback remains active.');
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('DATABASE_URL is required in production. Refusing to start with JSON-file fallback storage.');
+        }
+        console.warn('DATABASE_URL is not set. Running JSON-file storage only in non-production mode.');
         return;
     }
     pgPool = new Pool({
@@ -278,7 +294,21 @@ function emitStudentLedger(records) {
         if (!user) continue;
         if (user.role === 'Parent' || user.role === 'Student') {
             client.emit('ledger_sync_update', safeRecords.filter(s => studentOwnedBySession(s, user)).map(studentPortalView));
-        } else if (['Teacher', 'Head/Deputy', 'Developer'].includes(user.role)) {
+        } else if (user.role === 'Teacher') {
+            const staff = readStaffDatabase().find(item =>
+                item.role === 'Teacher' &&
+                String(item.name || '').trim() === String(user.name || '').trim() &&
+                String(item.email || item.name || '').trim().toLowerCase() === String(user.email || user.name || '').trim().toLowerCase()
+            );
+            const assigned = staff && (staff.assignedClasses || staff.classes || staff.classAssignments);
+            const classes = (Array.isArray(assigned) ? assigned : (typeof assigned === 'string' ? assigned.split(',') : []))
+                .map(value => String(value).trim().toUpperCase()).filter(Boolean);
+            // Teachers receive only their assigned classes, without guardian contact details or PIN material.
+            const teacherView = safeRecords
+                .filter(student => classes.includes(String(student.class || '').trim().toUpperCase()))
+                .map(({ parentEmail, parentPhone, ...student }) => student);
+            client.emit('ledger_sync_update', teacherView);
+        } else if (['Head/Deputy', 'Developer'].includes(user.role)) {
             client.emit('ledger_sync_update', safeRecords);
         }
     }
@@ -989,13 +1019,19 @@ io.use((socket, next) => {
         if (token) sessions.delete(token);
         return next(new Error('Unauthorized'));
     }
+    const ip = String(socket.handshake.address || 'unknown');
+    const active = socketsPerIp.get(ip) || 0;
+    if (active >= MAX_SOCKETS_PER_IP) return next(new Error('Connection limit reached'));
     session.lastSeenAt = now;
     socket.sessionToken = token;
     socket.sessionUser = session;
+    socket.clientIp = ip;
     next();
 });
 
 io.on('connection', (socket) => {
+    const ip = socket.clientIp || 'unknown';
+    socketsPerIp.set(ip, (socketsPerIp.get(ip) || 0) + 1);
     // Re-check session validity on every incoming WebSocket event.
     socket.use((packet, next) => {
         const session = sessions.get(socket.sessionToken);
@@ -1013,15 +1049,19 @@ io.on('connection', (socket) => {
     console.log(`Active node connected down terminal thread reference code ID: ${socket.id}`);
 
     // Track when active DOSA users connect
-    socket.on('register_dosa_session', (payload) => {
+    socket.on('register_dosa_session', () => {
         if (socket.sessionUser.role !== 'DOSA') return;
         activeDosaSessions[socket.id] = {
             socketId: socket.id,
-            email: payload.email,
-            dosaName: payload.dosaName || "Daramombe Alumni Association Node",
+            email: socket.sessionUser.email,
+            dosaName: socket.sessionUser.dosaName || socket.sessionUser.name || "Daramombe Alumni Association Node",
             loginTime: new Date().toLocaleTimeString()
         };
-        io.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+        for (const client of io.sockets.sockets.values()) {
+            if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                client.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+            }
+        }
     });
 
     // Student marks can only be changed by authorized roles and within their scope.
@@ -1117,7 +1157,11 @@ io.on('connection', (socket) => {
         faculty = faculty.filter(f => f.id !== id);
         await writeStaffDatabase(faculty);
         
-        io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+        for (const client of io.sockets.sockets.values()) {
+            if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                client.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+            }
+        }
         if (targetStaff) {
             io.emit('forced_disconnect_target', { type: 'Staff', targetEmail: targetStaff.email });
         }
@@ -1152,8 +1196,14 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         if (activeDosaSessions[socket.id]) {
             delete activeDosaSessions[socket.id];
-            io.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+            for (const client of io.sockets.sockets.values()) {
+                if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                    client.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+                }
+            }
         }
+        const remaining = Math.max(0, (socketsPerIp.get(ip) || 1) - 1);
+        if (remaining) socketsPerIp.set(ip, remaining); else socketsPerIp.delete(ip);
         console.log(`Node mapping dropped pipeline channels for trace link: ${socket.id}`);
     });
 });
