@@ -12,6 +12,20 @@ require('dotenv').config();
 
 const app = express();
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
+// Baseline response hardening. A restrictive CSP is deferred until inline UI scripts/styles
+// are migrated to nonces or external assets; enabling it now would break existing screens.
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (req.path.startsWith('/api/')) {
+        res.setHeader('Cache-Control', 'no-store, private');
+        res.setHeader('Pragma', 'no-cache');
+    }
+    next();
+});
 const server = http.createServer(app);
 const allowedSocketOrigins = String(process.env.ALLOWED_ORIGIN || '')
     .split(',')
@@ -313,6 +327,19 @@ function emitStudentLedger(records) {
         }
     }
 }
+
+// Operational health check for Render and uptime monitoring. No records or secrets are exposed.
+app.get('/healthz', async (req, res) => {
+    try {
+        if (pgPool) await pgPool.query('SELECT 1');
+        else if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+            return res.status(503).json({ status: 'unhealthy' });
+        }
+        return res.status(200).json({ status: 'ok' });
+    } catch (_) {
+        return res.status(503).json({ status: 'unhealthy' });
+    }
+});
 
 // HTTP Core REST API Routers
 app.get('/', (req, res) => {
