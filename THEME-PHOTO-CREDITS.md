@@ -1,17 +1,12 @@
 # Daramombe theme photo credits
 
-The sign-in backgrounds in `index.html` use remote image URLs discovered through public web/image search results for Daramombe High School. The portal does not claim ownership of these photographs. Images remain hosted by their respective publishers and may be subject to their copyright and hotlinking policies.
+The login background for all ten themes uses a photograph published by CBZ Holdings in its report about the Daramombe High School speech and prize-giving ceremony. The photo is hosted by CBZ; this repository references the image URL rather than copying the file.
 
-Please obtain permission from the school and/or rights holders before using these images in a commercial deployment. If permission is unavailable, replace them with school-owned photographs or licensed images.
+- **Photo:** Daramombe High School speech and prize-giving ceremony / school bus event
+- **Publisher:** CBZ Holdings
+- **Source article:** https://www.cbz.co.zw/cbz-donates-10-computers-to-daramombe-high-school/
+- **Image URL:** https://www.cbz.co.zw/assets/media/2017/11/daramombe_high_speech_and_prize_giving_ceremony_thumb.jpg
 
-## Sources
+The photo is displayed across Classic Light, Midnight Dark, Forest Green, Royal Blue, Burgundy House, Sunrise Gold, Emerald Teal, Violet Scholar, Ocean Blue, and Graphite Pro. Theme colours and overlays remain different.
 
-- School grounds / Christ the King Daramombe High School — Mindtrip attraction page: https://mindtrip.ai/attraction/chivhu-mashonaland-east/christ-king-daramombe-high-school/at-Bf2HdYmb
-- Daramombe students / school courtyard — TZABA: https://www.tzaba.org/post/tough-decisions-need-the-a-team
-- Daramombe students in lab coats — Mindtrip attraction page: https://mindtrip.ai/attraction/chivhu-mashonaland-east/christ-king-daramombe-high-school/at-Bf2HdYmb
-- Daramombe outdoor assembly — IBZIM school profile: https://www.ibzim.com/profiles/school/daramombe-high-school/
-- Daramombe school performance / choir — Newsreel Zimbabwe: https://newsreelzimbabwe.co.zw/2025/11/03/veteran-environmental-musician-pax-gomo-partners-with-daramombe-high-school-to-launch-conservation-themed-songs/
-
-## Technical note
-
-The current implementation references images directly from these publishers to avoid committing unlicensed copies to this repository. The browser therefore needs an internet connection to load the photographs. For reliable production use, replace these URLs with school-approved assets hosted in this repository or a school-controlled image bucket.
+The portal does not claim ownership of the photograph. For a commercial deployment, obtain permission from the school and/or the image rights holder, or replace it with a school-owned/licensed high-resolution photo. The image remains externally hosted and therefore requires an internet connection.
