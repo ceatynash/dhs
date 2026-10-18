@@ -27,8 +27,8 @@ const io = new Server(server, {
     pingInterval: 25000,
     connectTimeout: 10000
 });
-const MAX_SOCKETS_PER_IP = 8;
-const socketsPerIp = new Map();
+const MAX_SOCKETS_PER_SESSION = 4;
+const socketsPerSession = new Map();
 
 app.use(express.json({ limit: '32kb' }));
 const pdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
@@ -211,7 +211,7 @@ const writeDosaDatabase = async (data) => {
 };
 async function initializeStorage() {
     if (!process.env.DATABASE_URL) {
-        if (process.env.NODE_ENV === 'production') {
+        if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
             throw new Error('DATABASE_URL is required in production. Refusing to start with JSON-file fallback storage.');
         }
         console.warn('DATABASE_URL is not set. Running JSON-file storage only in non-production mode.');
@@ -1004,7 +1004,11 @@ app.post('/api/developer/add-staff', requireAuth, requireDeveloper, async (req, 
     const targetStaff = { id: Date.now(), name: name.trim(), email: email.trim().toLowerCase(), role, ...hashPin(String(pin)) };
     faculty.push(targetStaff);
     await writeStaffDatabase(faculty);
-    io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+    for (const client of io.sockets.sockets.values()) {
+        if (client.sessionUser && client.sessionUser.role === 'Developer') {
+            client.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+        }
+    }
     const { pinSalt, pinHash, ...safeStaff } = targetStaff;
     res.json({ success: true, staff: safeStaff });
 });
@@ -1019,19 +1023,27 @@ io.use((socket, next) => {
         if (token) sessions.delete(token);
         return next(new Error('Unauthorized'));
     }
-    const ip = String(socket.handshake.address || 'unknown');
-    const active = socketsPerIp.get(ip) || 0;
-    if (active >= MAX_SOCKETS_PER_IP) return next(new Error('Connection limit reached'));
+    const origin = socket.handshake.headers.origin;
+    if (origin) {
+        let sameOrigin = false;
+        try {
+            sameOrigin = new URL(origin).host === String(socket.handshake.headers.host || '');
+        } catch (_) { sameOrigin = false; }
+        if (allowedSocketOrigins.length ? !allowedSocketOrigins.includes(origin) : !sameOrigin) {
+            return next(new Error('Origin not allowed'));
+        }
+    }
+    const active = socketsPerSession.get(token) || 0;
+    if (active >= MAX_SOCKETS_PER_SESSION) return next(new Error('Connection limit reached'));
     session.lastSeenAt = now;
     socket.sessionToken = token;
     socket.sessionUser = session;
-    socket.clientIp = ip;
     next();
 });
 
 io.on('connection', (socket) => {
-    const ip = socket.clientIp || 'unknown';
-    socketsPerIp.set(ip, (socketsPerIp.get(ip) || 0) + 1);
+    const token = socket.sessionToken;
+    socketsPerSession.set(token, (socketsPerSession.get(token) || 0) + 1);
     // Re-check session validity on every incoming WebSocket event.
     socket.use((packet, next) => {
         const session = sessions.get(socket.sessionToken);
@@ -1169,13 +1181,17 @@ io.on('connection', (socket) => {
 
     // Developer drops tracked live DOSA sockets
     socket.on('developer_disconnect_dosa', (targetSocketId) => {
-        if (socket.sessionUser.role !== 'Developer') return;
+        if (socket.sessionUser.role !== 'Developer' || typeof targetSocketId !== 'string') return;
         if (io.sockets.sockets.get(targetSocketId)) {
             io.to(targetSocketId).emit('forced_dosa_kick');
-            io.sockets.sockets.get(targetSocketId).disconnect();
+            io.sockets.sockets.get(targetSocketId).disconnect(true);
         }
         delete activeDosaSessions[targetSocketId];
-        io.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+        for (const client of io.sockets.sockets.values()) {
+            if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                client.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+            }
+        }
     });
 
     // Messaging Engine Cluster
@@ -1202,8 +1218,9 @@ io.on('connection', (socket) => {
                 }
             }
         }
-        const remaining = Math.max(0, (socketsPerIp.get(ip) || 1) - 1);
-        if (remaining) socketsPerIp.set(ip, remaining); else socketsPerIp.delete(ip);
+        const token = socket.sessionToken;
+        const remaining = Math.max(0, (socketsPerSession.get(token) || 1) - 1);
+        if (remaining) socketsPerSession.set(token, remaining); else socketsPerSession.delete(token);
         console.log(`Node mapping dropped pipeline channels for trace link: ${socket.id}`);
     });
 });
