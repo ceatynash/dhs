@@ -104,13 +104,105 @@
       #dhs-theme-toggle:focus-visible { outline:3px solid #f59e0b; outline-offset:3px; }
       @media (max-width:480px) { #dhs-theme-toggle { top:8px; right:8px; padding:8px 10px; } }
 
+
+      /* Ten accessible Daramombe-inspired themes. School photos are remotely hosted by their original publishers;
+         see THEME-PHOTO-CREDITS.md for source links and attribution. */
+      :root {
+        --dhs-accent:#d97706; --dhs-accent-strong:#f59e0b; --dhs-page:#f8fafc;
+        --dhs-panel:#ffffff; --dhs-panel-deep:#f1f5f9; --dhs-ink:#0f172a; --dhs-muted:#475569;
+        --dhs-border:#cbd5e1; --dhs-photo:url("https://mindtrip.ai/cdn-cgi/image/format%3Dwebp%2Cw%3D1200/https%3A/images.mindtrip.ai/attractions/3dc9/9168/02bc/301a/c393/8f75/e458/6d30");
+      }
+      html[data-theme="forest"] { --dhs-accent:#15803d; --dhs-accent-strong:#22c55e; --dhs-page:#071b13; --dhs-panel:#10281d; --dhs-panel-deep:#163729; --dhs-ink:#ecfdf5; --dhs-muted:#bbd7c7; --dhs-border:#2c5b43; --dhs-photo:url("https://static.wixstatic.com/media/abcfed_b4b26b12f33d4b7c8679a4322da3853f~mv2.jpg/v1/fill/w_980%2Ch_735%2Cal_c%2Cq_85%2Cusm_0.66_1.00_0.01%2Cenc_avif%2Cquality_auto/abcfed_b4b26b12f33d4b7c8679a4322da3853f~mv2.jpg"); }
+      html[data-theme="royal"] { --dhs-accent:#2563eb; --dhs-accent-strong:#60a5fa; --dhs-page:#07152e; --dhs-panel:#10264a; --dhs-panel-deep:#18345e; --dhs-ink:#eff6ff; --dhs-muted:#c4d6f5; --dhs-border:#34598e; --dhs-photo:url("https://images.mindtrip.ai/attractions/7861/5def/5674/53d9/a2d9/0bcd/8d3e/25bc"); }
+      html[data-theme="burgundy"] { --dhs-accent:#be123c; --dhs-accent-strong:#fb7185; --dhs-page:#250a16; --dhs-panel:#3b1024; --dhs-panel-deep:#50152e; --dhs-ink:#fff1f2; --dhs-muted:#f5c4d0; --dhs-border:#87334e; --dhs-photo:url("https://images.mindtrip.ai/attractions/65fd/2d78/b479/2d75/a915/37d9/a130/4238"); }
+      html[data-theme="sunrise"] { --dhs-accent:#c2410c; --dhs-accent-strong:#fb923c; --dhs-page:#2b1208; --dhs-panel:#431e0e; --dhs-panel-deep:#5b2a13; --dhs-ink:#fff7ed; --dhs-muted:#fed7aa; --dhs-border:#9a4d24; --dhs-photo:url("https://cdn.sanity.io/images/wtjqx8mo/production/aa19c7b31672e3b9e525e9eea97fa118c6d2e707-1200x675.png?auto=format&fit=max&fm=webp&h=675&rect=263%2C0%2C675%2C675&w=675"); }
+      html[data-theme="emerald"] { --dhs-accent:#0f766e; --dhs-accent-strong:#2dd4bf; --dhs-page:#06201f; --dhs-panel:#0d302e; --dhs-panel-deep:#12413e; --dhs-ink:#f0fdfa; --dhs-muted:#b7e4de; --dhs-border:#276762; --dhs-photo:url("https://newsreelzimbabwe.co.zw/wp-content/uploads/2025/11/1000447484.jpg"); }
+      html[data-theme="violet"] { --dhs-accent:#7c3aed; --dhs-accent-strong:#a78bfa; --dhs-page:#170d2c; --dhs-panel:#281744; --dhs-panel-deep:#352057; --dhs-ink:#f5f3ff; --dhs-muted:#ddd0fa; --dhs-border:#624494; --dhs-photo:url("https://images.mindtrip.ai/attractions/7861/5def/5674/53d9/a2d9/0bcd/8d3e/25bc"); }
+      html[data-theme="ocean"] { --dhs-accent:#0284c7; --dhs-accent-strong:#38bdf8; --dhs-page:#061a2a; --dhs-panel:#0b2b40; --dhs-panel-deep:#103a53; --dhs-ink:#f0f9ff; --dhs-muted:#bae6fd; --dhs-border:#25617e; --dhs-photo:url("https://newsreelzimbabwe.co.zw/wp-content/uploads/2025/11/Screenshot_20251102_124937_Video-Player.jpg"); }
+      html[data-theme="graphite"] { --dhs-accent:#64748b; --dhs-accent-strong:#cbd5e1; --dhs-page:#111318; --dhs-panel:#20232a; --dhs-panel-deep:#2b3038; --dhs-ink:#f8fafc; --dhs-muted:#d1d5db; --dhs-border:#4b5563; --dhs-photo:url("https://cdn.sanity.io/images/wtjqx8mo/production/aa19c7b31672e3b9e525e9eea97fa118c6d2e707-1200x675.png?auto=format&fit=max&fm=webp&h=675&rect=263%2C0%2C675%2C675&w=675"); }
+
+      html[data-theme="forest"] body, html[data-theme="royal"] body, html[data-theme="burgundy"] body,
+      html[data-theme="sunrise"] body, html[data-theme="emerald"] body, html[data-theme="violet"] body,
+      html[data-theme="ocean"] body, html[data-theme="graphite"] body {
+        background-color:var(--dhs-page)!important; color:var(--dhs-ink)!important;
+      }
+      html[data-theme="forest"] .bg-white, html[data-theme="forest"] .bg-slate-50, html[data-theme="forest"] .bg-slate-100,
+      html[data-theme="royal"] .bg-white, html[data-theme="royal"] .bg-slate-50, html[data-theme="royal"] .bg-slate-100,
+      html[data-theme="burgundy"] .bg-white, html[data-theme="burgundy"] .bg-slate-50, html[data-theme="burgundy"] .bg-slate-100,
+      html[data-theme="sunrise"] .bg-white, html[data-theme="sunrise"] .bg-slate-50, html[data-theme="sunrise"] .bg-slate-100,
+      html[data-theme="emerald"] .bg-white, html[data-theme="emerald"] .bg-slate-50, html[data-theme="emerald"] .bg-slate-100,
+      html[data-theme="violet"] .bg-white, html[data-theme="violet"] .bg-slate-50, html[data-theme="violet"] .bg-slate-100,
+      html[data-theme="ocean"] .bg-white, html[data-theme="ocean"] .bg-slate-50, html[data-theme="ocean"] .bg-slate-100,
+      html[data-theme="graphite"] .bg-white, html[data-theme="graphite"] .bg-slate-50, html[data-theme="graphite"] .bg-slate-100 { background-color:var(--dhs-panel)!important; }
+      html[data-theme="forest"] .bg-slate-950, html[data-theme="royal"] .bg-slate-950, html[data-theme="burgundy"] .bg-slate-950,
+      html[data-theme="sunrise"] .bg-slate-950, html[data-theme="emerald"] .bg-slate-950, html[data-theme="violet"] .bg-slate-950,
+      html[data-theme="ocean"] .bg-slate-950, html[data-theme="graphite"] .bg-slate-950,
+      html[data-theme="forest"] .bg-slate-900, html[data-theme="royal"] .bg-slate-900, html[data-theme="burgundy"] .bg-slate-900,
+      html[data-theme="sunrise"] .bg-slate-900, html[data-theme="emerald"] .bg-slate-900, html[data-theme="violet"] .bg-slate-900,
+      html[data-theme="ocean"] .bg-slate-900, html[data-theme="graphite"] .bg-slate-900,
+      html[data-theme="forest"] .bg-slate-800, html[data-theme="royal"] .bg-slate-800, html[data-theme="burgundy"] .bg-slate-800,
+      html[data-theme="sunrise"] .bg-slate-800, html[data-theme="emerald"] .bg-slate-800, html[data-theme="violet"] .bg-slate-800,
+      html[data-theme="ocean"] .bg-slate-800, html[data-theme="graphite"] .bg-slate-800 { background-color:var(--dhs-panel-deep)!important; }
+      html[data-theme="forest"] .text-amber-500, html[data-theme="royal"] .text-amber-500, html[data-theme="burgundy"] .text-amber-500,
+      html[data-theme="sunrise"] .text-amber-500, html[data-theme="emerald"] .text-amber-500, html[data-theme="violet"] .text-amber-500,
+      html[data-theme="ocean"] .text-amber-500, html[data-theme="graphite"] .text-amber-500 { color:var(--dhs-accent-strong)!important; }
+      html[data-theme="forest"] .bg-amber-500, html[data-theme="royal"] .bg-amber-500, html[data-theme="burgundy"] .bg-amber-500,
+      html[data-theme="sunrise"] .bg-amber-500, html[data-theme="emerald"] .bg-amber-500, html[data-theme="violet"] .bg-amber-500,
+      html[data-theme="ocean"] .bg-amber-500, html[data-theme="graphite"] .bg-amber-500 { background-color:var(--dhs-accent)!important; }
+      html[data-theme="forest"] .border-slate-800, html[data-theme="royal"] .border-slate-800, html[data-theme="burgundy"] .border-slate-800,
+      html[data-theme="sunrise"] .border-slate-800, html[data-theme="emerald"] .border-slate-800, html[data-theme="violet"] .border-slate-800,
+      html[data-theme="ocean"] .border-slate-800, html[data-theme="graphite"] .border-slate-800 { border-color:var(--dhs-border)!important; }
+      html[data-theme="forest"] .text-slate-100, html[data-theme="royal"] .text-slate-100, html[data-theme="burgundy"] .text-slate-100,
+      html[data-theme="sunrise"] .text-slate-100, html[data-theme="emerald"] .text-slate-100, html[data-theme="violet"] .text-slate-100,
+      html[data-theme="ocean"] .text-slate-100, html[data-theme="graphite"] .text-slate-100,
+      html[data-theme="forest"] .text-slate-200, html[data-theme="royal"] .text-slate-200, html[data-theme="burgundy"] .text-slate-200,
+      html[data-theme="sunrise"] .text-slate-200, html[data-theme="emerald"] .text-slate-200, html[data-theme="violet"] .text-slate-200,
+      html[data-theme="ocean"] .text-slate-200, html[data-theme="graphite"] .text-slate-200 { color:var(--dhs-ink)!important; }
+      html[data-theme="forest"] .text-slate-400, html[data-theme="royal"] .text-slate-400, html[data-theme="burgundy"] .text-slate-400,
+      html[data-theme="sunrise"] .text-slate-400, html[data-theme="emerald"] .text-slate-400, html[data-theme="violet"] .text-slate-400,
+      html[data-theme="ocean"] .text-slate-400, html[data-theme="graphite"] .text-slate-400 { color:var(--dhs-muted)!important; }
+      body:has(#auth-card:not(.hidden)) { background-image:linear-gradient(rgba(2,6,23,.76),rgba(2,6,23,.86)),var(--dhs-photo)!important; background-size:cover; background-position:center; background-attachment:fixed; }
+      #dhs-theme-picker { position:fixed; top:56px; right:12px; z-index:9999; width:190px; border:1px solid #64748b; border-radius:12px; padding:8px 10px; background:#fff; color:#0f172a; box-shadow:0 8px 28px #0003; font:700 12px system-ui,sans-serif; }
+      html[data-theme="dark"] #dhs-theme-picker, html[data-theme="forest"] #dhs-theme-picker, html[data-theme="royal"] #dhs-theme-picker,
+      html[data-theme="burgundy"] #dhs-theme-picker, html[data-theme="sunrise"] #dhs-theme-picker, html[data-theme="emerald"] #dhs-theme-picker,
+      html[data-theme="violet"] #dhs-theme-picker, html[data-theme="ocean"] #dhs-theme-picker, html[data-theme="graphite"] #dhs-theme-picker { background:var(--dhs-panel); color:var(--dhs-ink); border-color:var(--dhs-border); }
+      #dhs-theme-picker:focus-visible { outline:3px solid var(--dhs-accent-strong); outline-offset:3px; }
+      @media(max-width:480px){ #dhs-theme-picker{top:54px;right:8px;width:170px;} }
+
+
+      /* Make Classic Light genuinely light while retaining legible controls. */
+      html[data-theme="light"] body { background-color:#f8fafc!important; color:#0f172a!important; }
+      html[data-theme="light"] .bg-slate-950 { background-color:#f1f5f9!important; }
+      html[data-theme="light"] .bg-slate-900, html[data-theme="light"] .bg-slate-800 { background-color:#ffffff!important; }
+      html[data-theme="light"] .text-slate-100, html[data-theme="light"] .text-slate-200,
+      html[data-theme="light"] .text-slate-300 { color:#0f172a!important; }
+      html[data-theme="light"] .text-slate-400, html[data-theme="light"] .text-slate-500 { color:#475569!important; }
+      html[data-theme="light"] .border-slate-800, html[data-theme="light"] .border-slate-700,
+      html[data-theme="light"] .border-slate-600 { border-color:#cbd5e1!important; }
+      html[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]),
+      html[data-theme="light"] select, html[data-theme="light"] textarea {
+        background-color:#ffffff!important; color:#0f172a!important; border-color:#cbd5e1!important;
+      }
+      html[data-theme="light"] #auth-card { background:rgba(255,255,255,.94)!important; border-color:#d97706!important; }
+      html[data-theme="light"] body:has(#auth-card:not(.hidden)) {
+        background-image:linear-gradient(rgba(248,250,252,.70),rgba(248,250,252,.86)),var(--dhs-photo)!important;
+      }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
-    <button id="dhs-theme-toggle" type="button" aria-label="Switch to dark theme" aria-pressed="false">
-      <span id="dhs-theme-icon" aria-hidden="true">🌙</span>
-      <span id="dhs-theme-label">Dark theme</span>
+    <button id="dhs-theme-toggle" type="button" aria-label="Cycle to next school theme" aria-pressed="false">
+      <span id="dhs-theme-icon" aria-hidden="true">🎨</span>
+      <span id="dhs-theme-label">Choose theme</span>
     </button>
+    <label for="dhs-theme-picker" class="sr-only">Choose portal theme</label>
+    <select id="dhs-theme-picker" aria-label="Choose portal theme">
+      <option value="light">Classic Light</option><option value="dark">Midnight Dark</option>
+      <option value="forest">Forest Green</option><option value="royal">Royal Blue</option>
+      <option value="burgundy">Burgundy House</option><option value="sunrise">Sunrise Gold</option>
+      <option value="emerald">Emerald Teal</option><option value="violet">Violet Scholar</option>
+      <option value="ocean">Ocean Blue</option><option value="graphite">Graphite Pro</option>
+    </select>
 
 
     <div id="auth-card" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl mt-8">
@@ -407,37 +499,40 @@
 
 <script>
 
-        // Theme preference is stored per browser/device, so every portal user can choose independently.
+        // Theme preference is stored per browser/device; no school records are stored here.
         (function initDhsTheme() {
             const key = 'dhs-portal-theme';
             const toggle = document.getElementById('dhs-theme-toggle');
             const icon = document.getElementById('dhs-theme-icon');
             const label = document.getElementById('dhs-theme-label');
-            if (!toggle || !icon || !label) return;
-
+            const picker = document.getElementById('dhs-theme-picker');
+            if (!toggle || !icon || !label || !picker) return;
+            const themes = ['light','dark','forest','royal','burgundy','sunrise','emerald','violet','ocean','graphite'];
+            const names = {light:'Classic Light',dark:'Midnight Dark',forest:'Forest Green',royal:'Royal Blue',burgundy:'Burgundy House',sunrise:'Sunrise Gold',emerald:'Emerald Teal',violet:'Violet Scholar',ocean:'Ocean Blue',graphite:'Graphite Pro'};
             function applyTheme(theme) {
-                const dark = theme === 'dark';
-                document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-                document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-                icon.textContent = dark ? '☀️' : '🌙';
-                label.textContent = dark ? 'Light theme' : 'Dark theme';
-                toggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
-                toggle.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+                if (!themes.includes(theme)) theme = 'light';
+                document.documentElement.setAttribute('data-theme', theme);
+                document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+                picker.value = theme;
+                icon.textContent = theme === 'light' ? '☀️' : (theme === 'dark' ? '🌙' : '🎨');
+                label.textContent = names[theme];
+                toggle.setAttribute('aria-label', 'Current theme: ' + names[theme] + '. Click to cycle themes.');
+                toggle.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
             }
-
             let saved = 'light';
-            try {
-                const preference = localStorage.getItem(key);
-                if (preference === 'dark' || preference === 'light') saved = preference;
-            } catch (_) {}
+            try { const preference = localStorage.getItem(key); if (themes.includes(preference)) saved = preference; } catch (_) {}
             applyTheme(saved);
-
-            toggle.addEventListener('click', function () {
-                const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-                applyTheme(next);
-                try { localStorage.setItem(key, next); } catch (_) {}
+            function saveTheme(theme) {
+                applyTheme(theme);
+                try { localStorage.setItem(key, theme); } catch (_) {}
+            }
+            picker.addEventListener('change', () => saveTheme(picker.value));
+            toggle.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme') || 'light';
+                saveTheme(themes[(themes.indexOf(current) + 1) % themes.length]);
             });
         })();
+
 
 
         let sessionToken = '';
