@@ -188,6 +188,68 @@
         background-image:linear-gradient(rgba(248,250,252,.70),rgba(248,250,252,.86)),var(--dhs-photo)!important;
       }
 
+    
+      /* Professional DHS sign-in refresh: responsive split-panel layout, accessible focus states. */
+      #auth-card {
+        width:min(100%, 1020px)!important; max-width:1020px!important; margin:5.5rem auto 2rem!important;
+        padding:0!important; display:grid; grid-template-columns:minmax(0, .95fr) minmax(360px, 1.05fr);
+        grid-template-areas:"welcome heading" "welcome form"; gap:0; overflow:hidden;
+        border:1px solid rgba(255,255,255,.22)!important; border-radius:26px!important;
+        background:rgba(255,255,255,.97)!important; color:#172033;
+        box-shadow:0 28px 90px rgba(2,6,23,.38)!important;
+      }
+      #auth-card::before {
+        content:"DARAMOMBE HIGH SCHOOL\\A\\A Learning • Character • Excellence\\A\\A A secure space for academic progress, school notices and fee statements.";
+        grid-area:welcome; display:flex; flex-direction:column; justify-content:flex-end; white-space:pre-line;
+        min-height:570px; padding:44px 36px; color:#fff; font-size:15px; line-height:1.8; font-weight:500;
+        background:linear-gradient(180deg,rgba(5,20,38,.08) 5%,rgba(5,20,38,.92) 100%),var(--dhs-photo);
+        background-position:center; background-size:cover; border-right:1px solid rgba(255,255,255,.12);
+      }
+      #auth-card > .text-center { grid-area:heading; margin:0!important; padding:34px 38px 8px; text-align:left!important; }
+      #auth-card h1 { color:#142b4a!important; font-size:clamp(1.25rem,2vw,1.7rem)!important; line-height:1.2; letter-spacing:-.035em!important; }
+      #auth-card > .text-center p { color:#64748b!important; font-size:11px!important; letter-spacing:.12em!important; line-height:1.6; }
+      #login-form { grid-area:form; padding:14px 38px 34px; color:#172033; }
+      #login-form label { color:#334155!important; font-size:11px!important; letter-spacing:.07em; }
+      #login-form input, #login-form select {
+        min-height:46px; padding:12px 13px!important; border:1px solid #d7dfeb!important;
+        border-radius:11px!important; background:#f8fafc!important; color:#172033!important; font-size:14px!important;
+      }
+      #login-form input::placeholder { color:#94a3b8!important; }
+      #login-form input:focus, #login-form select:focus { outline:none; border-color:#c58a25!important; box-shadow:0 0 0 4px rgba(197,138,37,.15)!important; }
+      #login-form #auth-help { color:#64748b!important; text-align:left!important; line-height:1.65; }
+      #login-form #auth-submit {
+        min-height:48px; border-radius:11px!important; background:#17385e!important; color:white!important;
+        text-transform:none!important; letter-spacing:.01em!important; font-size:14px!important; font-weight:800;
+        box-shadow:0 8px 18px rgba(23,56,94,.18);
+      }
+      #login-form #auth-submit:hover { background:#214b78!important; }
+      #login-form #auth-status { color:#64748b!important; min-height:18px; }
+      #dhs-theme-toggle { top:16px; right:16px; }
+      #dhs-theme-picker { top:60px; right:16px; }
+      html[data-theme="dark"] #auth-card, html[data-theme="forest"] #auth-card, html[data-theme="royal"] #auth-card,
+      html[data-theme="burgundy"] #auth-card, html[data-theme="sunrise"] #auth-card, html[data-theme="emerald"] #auth-card,
+      html[data-theme="violet"] #auth-card, html[data-theme="ocean"] #auth-card, html[data-theme="graphite"] #auth-card {
+        background:var(--dhs-panel)!important; color:var(--dhs-ink);
+      }
+      html[data-theme="dark"] #auth-card h1, html[data-theme="forest"] #auth-card h1, html[data-theme="royal"] #auth-card h1,
+      html[data-theme="burgundy"] #auth-card h1, html[data-theme="sunrise"] #auth-card h1, html[data-theme="emerald"] #auth-card h1,
+      html[data-theme="violet"] #auth-card h1, html[data-theme="ocean"] #auth-card h1, html[data-theme="graphite"] #auth-card h1 { color:var(--dhs-ink)!important; }
+      html[data-theme="dark"] #login-form label, html[data-theme="forest"] #login-form label, html[data-theme="royal"] #login-form label,
+      html[data-theme="burgundy"] #login-form label, html[data-theme="sunrise"] #login-form label, html[data-theme="emerald"] #login-form label,
+      html[data-theme="violet"] #login-form label, html[data-theme="ocean"] #login-form label, html[data-theme="graphite"] #login-form label { color:var(--dhs-ink)!important; }
+      @media(max-width:760px) {
+        #auth-card { width:min(100%,520px)!important; grid-template-columns:1fr; grid-template-areas:"welcome" "heading" "form"; margin:5rem auto 1rem!important; }
+        #auth-card::before { min-height:180px; padding:24px; font-size:13px; background-position:center 42%; }
+        #auth-card > .text-center { padding:25px 24px 4px; }
+        #login-form { padding:12px 24px 28px; }
+        #dhs-theme-toggle { top:10px; left:10px; right:auto; }
+        #dhs-theme-picker { top:10px; right:10px; width:155px; }
+      }
+      @media(max-width:380px) {
+        #auth-card::before { min-height:145px; }
+        #auth-card > .text-center, #login-form { padding-left:18px; padding-right:18px; }
+      }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
@@ -207,13 +269,13 @@
 
     <div id="auth-card" class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl mt-8">
         <div class="text-center mb-6">
-            <h1 class="text-2xl font-black text-amber-500 tracking-wider">DARAMOMBE HIGH SCHOOL PORTAL</h1>
-            <p class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1">Daramombe High School Real-time Portal</p>
+            <h1 class="text-2xl font-black text-amber-500 tracking-wider">Welcome back</h1>
+            <p class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-1">Daramombe High School · e-Report Portal</p>
         </div>
 
         <form id="login-form" class="space-y-4">
             <div>
-                <label for="auth-role" class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Sign-in profile</label>
+                <label for="auth-role" class="block text-[11px] uppercase font-bold text-slate-400 mb-1">Choose your portal access</label>
                 <select id="auth-role" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200">
                     <option value="Parent">Parent / Guardian</option><option value="Student">Student</option>
                     <option value="Teacher">Teacher</option><option value="Head/Deputy">Head / Deputy</option>
@@ -233,7 +295,7 @@
                 <input id="auth-pin" name="pin" type="password" autocomplete="current-password" minlength="8" maxlength="32" required placeholder="8–32 letters or numbers" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100">
             </div>
             <p id="auth-help" class="text-xs text-slate-400 text-center">Parents and students use the child's DHS ID, exact registered name, and private PIN. Never share the PIN publicly.</p>
-            <button id="auth-submit" type="submit" class="w-full rounded-lg bg-amber-500 hover:bg-amber-400 px-4 py-3 text-sm font-black uppercase tracking-wide text-slate-950">Sign in securely</button>
+            <button id="auth-submit" type="submit" class="w-full rounded-lg bg-amber-500 hover:bg-amber-400 px-4 py-3 text-sm font-black uppercase tracking-wide text-slate-950">Sign in to your portal</button>
             <p id="auth-status" class="text-xs text-center text-slate-400" role="status" aria-live="polite">DHS-managed secure sign-in</p>
         </form>
     </div>
