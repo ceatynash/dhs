@@ -29,19 +29,55 @@ const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'students.json');
 const STAFF_FILE = path.join(__dirname, 'staff.json');
 const DOSA_FILE = path.join(__dirname, 'dosa_members.json');
-const SESSION_SECRET = process.env.SESSION_SECRET || '';
 const sessions = new Map();
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const SESSION_ABSOLUTE_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const loginAttempts = new Map();
 
 function createSession(identity) {
     const token = crypto.randomBytes(32).toString('hex');
+    const now = Date.now();
     sessions.set(token, {
         email: identity.email || identity.name, name: identity.name || '',
         role: identity.role, schoolId: identity.schoolId || '',
-        dosaName: identity.dosaName || '', expires: Date.now() + 8 * 60 * 60 * 1000
+        dosaName: identity.dosaName || '', createdAt: now,
+        lastSeenAt: now, expires: now + SESSION_ABSOLUTE_TIMEOUT_MS
     });
     return token;
 }
-const loginAttempts = new Map();
+
+function pruneLoginAttempts(now = Date.now()) {
+    for (const [key, times] of loginAttempts) {
+        const recent = times.filter(time => now - time < LOGIN_WINDOW_MS);
+        if (recent.length) loginAttempts.set(key, recent);
+        else loginAttempts.delete(key);
+    }
+    while (loginAttempts.size > 5000) loginAttempts.delete(loginAttempts.keys().next().value);
+}
+
+function loginRateLimit(ip, role, name, now = Date.now()) {
+    pruneLoginAttempts(now);
+    const ipKey = 'ip:' + ip;
+    const identityKey = 'identity:' + crypto.createHash('sha256').update(
+        role + '\\0' + String(name || '').trim().toLowerCase()
+    ).digest('hex');
+    return {
+        limited: (loginAttempts.get(ipKey) || []).length >= 12 ||
+            (loginAttempts.get(identityKey) || []).length >= 6,
+        ipKey, identityKey
+    };
+}
+
+function recordLoginFailure(keys, now = Date.now()) {
+    for (const key of [keys.ipKey, keys.identityKey]) {
+        const recent = (loginAttempts.get(key) || []).filter(time => now - time < LOGIN_WINDOW_MS);
+        recent.push(now);
+        loginAttempts.set(key, recent);
+    }
+    pruneLoginAttempts(now);
+}
+
 function pinMatches(pin, record) {
     if (!record || !record.pinSalt || !record.pinHash || typeof pin !== 'string') return false;
     const actual = crypto.scryptSync(pin, record.pinSalt, 64);
@@ -58,9 +94,15 @@ function safeEqualText(a, b) {
 }
 function validPin(pin) { return typeof pin === 'string' && /^[0-9A-Za-z]{8,32}$/.test(pin); }
 function getSession(req) {
-    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-session-token'];
+    const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+    const token = authorization.replace(/^Bearer\\s+/i, '') || req.headers['x-session-token'];
     const session = token && sessions.get(token);
-    if (!session || session.expires < Date.now()) { if (token) sessions.delete(token); return null; }
+    const now = Date.now();
+    if (!session || session.expires <= now || now - session.lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
+        if (token) sessions.delete(token);
+        return null;
+    }
+    session.lastSeenAt = now;
     return session;
 }
 function requireAuth(req, res, next) {
@@ -783,36 +825,54 @@ app.post('/api/auth/login', (req, res) => {
     const pin = typeof body.pin === 'string' ? body.pin : '';
     const ip = String(req.ip || req.socket.remoteAddress || 'unknown');
     const now = Date.now();
-    const attempts = (loginAttempts.get(ip) || []).filter(time => now - time < 15 * 60 * 1000);
-    if (attempts.length >= 12) {
+    const rate = loginRateLimit(ip, role, name, now);
+    res.set('Cache-Control', 'no-store');
+    if (rate.limited) {
         res.set('Retry-After', '900');
         return res.status(429).json({ success: false, message: 'Too many sign-in attempts. Wait 15 minutes and try again.' });
     }
-    attempts.push(now); loginAttempts.set(ip, attempts);
-    res.set('Cache-Control', 'no-store');
-    if (!['Student', 'Parent', 'Teacher', 'Head/Deputy', 'DOSA', 'Developer'].includes(role) || !name || name.length > 120 || !validPin(pin)) {
+    if (!['Student', 'Parent', 'Teacher', 'Head/Deputy', 'DOSA', 'Developer'].includes(role) ||
+        !name || name.length > 120 || !validPin(pin) || schoolId.length > 60) {
+        recordLoginFailure(rate, now);
         return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
     }
+
     let identity = null;
     if (role === 'Student' || role === 'Parent') {
-        const student = readDatabase().find(item => String(item.schoolId || '').toUpperCase() === schoolId.toUpperCase() && String(item.name || '').trim() === name && pinMatches(pin, item));
+        const student = readDatabase().find(item =>
+            String(item.schoolId || '').toUpperCase() === schoolId.toUpperCase() &&
+            String(item.name || '').trim() === name && pinMatches(pin, item)
+        );
         if (student) identity = { name: student.name, email: student.schoolId, schoolId: student.schoolId, role };
     } else if (role === 'Teacher' || role === 'Head/Deputy') {
-        const staff = readStaffDatabase().find(item => String(item.name || '').trim() === name && item.role === role && pinMatches(pin, item));
+        const staff = readStaffDatabase().find(item =>
+            String(item.name || '').trim() === name && item.role === role && pinMatches(pin, item)
+        );
         if (staff) identity = { name: staff.name, email: staff.email || staff.name, role: staff.role };
     } else if (role === 'Developer') {
         const configuredName = String(process.env.DHS_DEVELOPER_NAME || '').trim();
         const configuredPin = String(process.env.DHS_DEVELOPER_PIN || '');
-        if (configuredName && configuredPin && name === configuredName && safeEqualText(pin, configuredPin)) identity = { name: configuredName, email: 'developer:' + configuredName, role: 'Developer' };
+        // Fail closed until a strong, private developer PIN is configured.
+        if (configuredName && configuredPin.length >= 16 && name === configuredName &&
+            safeEqualText(pin, configuredPin)) {
+            identity = { name: configuredName, email: 'developer:' + configuredName, role: 'Developer' };
+        }
     } else if (role === 'DOSA') {
-        const members = readDosaDatabase();
-        const member = members.find(item => String(item.name || item.dosaName || '').trim() === name && pinMatches(pin, item));
+        const member = readDosaDatabase().find(item =>
+            String(item.name || item.dosaName || '').trim() === name && pinMatches(pin, item)
+        );
         if (member) identity = { name, email: member.email || name, role: 'DOSA', dosaName: name };
     }
-    if (!identity) return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
-    loginAttempts.delete(ip);
+
+    if (!identity) {
+        recordLoginFailure(rate, now);
+        return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
+    }
     const token = createSession(identity);
-    return res.json({ success: true, name: identity.name, email: identity.email, role: identity.role, schoolId: identity.schoolId || '', dosaName: identity.dosaName || '', token });
+    return res.json({
+        success: true, name: identity.name, email: identity.email, role: identity.role,
+        schoolId: identity.schoolId || '', dosaName: identity.dosaName || '', token
+    });
 });
 
 app.post('/api/developer/student-pin', requireAuth, requireDeveloper, async (req, res) => {
@@ -895,12 +955,32 @@ app.post('/api/developer/add-staff', requireAuth, requireDeveloper, async (req, 
 io.use((socket, next) => {
     const token = socket.handshake.auth && socket.handshake.auth.token;
     const session = token && sessions.get(token);
-    if (!session || session.expires < Date.now()) return next(new Error('Unauthorized'));
+    const now = Date.now();
+    if (!session || session.expires <= now || now - session.lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
+        if (token) sessions.delete(token);
+        return next(new Error('Unauthorized'));
+    }
+    session.lastSeenAt = now;
+    socket.sessionToken = token;
     socket.sessionUser = session;
     next();
 });
 
 io.on('connection', (socket) => {
+    // Re-check session validity on every incoming WebSocket event.
+    socket.use((packet, next) => {
+        const session = sessions.get(socket.sessionToken);
+        const now = Date.now();
+        if (!session || session.expires <= now || now - session.lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
+            sessions.delete(socket.sessionToken);
+            socket.disconnect(true);
+            return next(new Error('Session expired. Please sign in again.'));
+        }
+        session.lastSeenAt = now;
+        socket.sessionUser = session;
+        next();
+    });
+
     console.log(`Active node connected down terminal thread reference code ID: ${socket.id}`);
 
     // Track when active DOSA users connect
@@ -1054,7 +1134,6 @@ initializeStorage().then(() => {
         console.log(`=======================================================`);
         console.log(`  DARAMOMBE HIGH SCHOOL PORTAL INITIALIZED ON PORT [${PORT}]`);
         console.log(`  Running Architecture Profile Mode 2026`);
-        if (!SESSION_SECRET) console.warn('WARNING: SESSION_SECRET is unset. Configure a long random secret in the deployment environment.');
         console.log(`=======================================================`);
     });
 }).catch(error => {
