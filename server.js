@@ -108,7 +108,7 @@ function safeEqualText(a, b) {
 function validPin(pin) { return typeof pin === 'string' && /^[0-9A-Za-z]{8,32}$/.test(pin); }
 function getSession(req) {
     const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
-    const token = authorization.replace(/^Bearer\\s+/i, '') || req.headers['x-session-token'];
+    const token = authorization.replace(/^Bearer\s+/i, '') || req.headers['x-session-token'];
     const session = token && sessions.get(token);
     const now = Date.now();
     if (!session || session.expires <= now || now - session.lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
