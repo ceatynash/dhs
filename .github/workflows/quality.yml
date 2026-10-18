@@ -1,0 +1,48 @@
+name: Quality and security checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, "hardening/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # The committed lockfile is out of sync with package.json. Reconcile it in CI and
+      # apply compatible security updates; the regenerated lock must still be committed.
+      - name: Install dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Apply compatible dependency security fixes
+        run: npm audit fix --ignore-scripts --no-fund
+      - name: Syntax check
+        run: node --check server.js
+      - name: Regression tests
+        run: npm test
+      - name: Dependency audit report
+        if: always()
+        run: npm audit --json > npm-audit.json || true
+      - name: Upload dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit.json
+          if-no-files-found: warn
+          retention-days: 14
