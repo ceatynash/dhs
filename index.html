@@ -793,8 +793,20 @@
                 updatedMarks[key] = parseInt(value);
             });
 
-            socket.emit('update_student_marks', { id: activeSelectedEditingStudentId, marks: updatedMarks });
-            closeMarksEditingModal();
+            const saveButton = e.target.querySelector('button[type="submit"]');
+            if (saveButton) saveButton.disabled = true;
+            socket.timeout(8000).emit('update_student_marks', { id: activeSelectedEditingStudentId, marks: updatedMarks }, (timeoutError, response) => {
+                if (saveButton) saveButton.disabled = false;
+                if (timeoutError) {
+                    alert('The server did not confirm the mark update. Check your connection and try again.');
+                    return;
+                }
+                if (!response || !response.success) {
+                    alert((response && response.message) || 'Marks were not saved. Please try again.');
+                    return;
+                }
+                closeMarksEditingModal();
+            });
         });
 
         // Developer POST Forms Injections

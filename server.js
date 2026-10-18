@@ -13,9 +13,22 @@ require('dotenv').config();
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
+const allowedSocketOrigins = String(process.env.ALLOWED_ORIGIN || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
 const io = new Server(server, {
-    cors: { origin: process.env.ALLOWED_ORIGIN || true }
+    // Same-origin works by default. Cross-origin clients must be explicitly allow-listed.
+    cors: allowedSocketOrigins.length
+        ? { origin: allowedSocketOrigins, credentials: false }
+        : { origin: false },
+    maxHttpBufferSize: 64 * 1024,
+    pingTimeout: 20000,
+    pingInterval: 25000,
+    connectTimeout: 10000
 });
+const MAX_SOCKETS_PER_SESSION = 4;
+const socketsPerSession = new Map();
 
 app.use(express.json({ limit: '32kb' }));
 const pdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
@@ -29,19 +42,55 @@ const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'students.json');
 const STAFF_FILE = path.join(__dirname, 'staff.json');
 const DOSA_FILE = path.join(__dirname, 'dosa_members.json');
-const SESSION_SECRET = process.env.SESSION_SECRET || '';
 const sessions = new Map();
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const SESSION_ABSOLUTE_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const loginAttempts = new Map();
 
 function createSession(identity) {
     const token = crypto.randomBytes(32).toString('hex');
+    const now = Date.now();
     sessions.set(token, {
         email: identity.email || identity.name, name: identity.name || '',
         role: identity.role, schoolId: identity.schoolId || '',
-        dosaName: identity.dosaName || '', expires: Date.now() + 8 * 60 * 60 * 1000
+        dosaName: identity.dosaName || '', createdAt: now,
+        lastSeenAt: now, expires: now + SESSION_ABSOLUTE_TIMEOUT_MS
     });
     return token;
 }
-const loginAttempts = new Map();
+
+function pruneLoginAttempts(now = Date.now()) {
+    for (const [key, times] of loginAttempts) {
+        const recent = times.filter(time => now - time < LOGIN_WINDOW_MS);
+        if (recent.length) loginAttempts.set(key, recent);
+        else loginAttempts.delete(key);
+    }
+    while (loginAttempts.size > 5000) loginAttempts.delete(loginAttempts.keys().next().value);
+}
+
+function loginRateLimit(ip, role, name, now = Date.now()) {
+    pruneLoginAttempts(now);
+    const ipKey = 'ip:' + ip;
+    const identityKey = 'identity:' + crypto.createHash('sha256').update(
+        role + '\\0' + String(name || '').trim().toLowerCase()
+    ).digest('hex');
+    return {
+        limited: (loginAttempts.get(ipKey) || []).length >= 12 ||
+            (loginAttempts.get(identityKey) || []).length >= 6,
+        ipKey, identityKey
+    };
+}
+
+function recordLoginFailure(keys, now = Date.now()) {
+    for (const key of [keys.ipKey, keys.identityKey]) {
+        const recent = (loginAttempts.get(key) || []).filter(time => now - time < LOGIN_WINDOW_MS);
+        recent.push(now);
+        loginAttempts.set(key, recent);
+    }
+    pruneLoginAttempts(now);
+}
+
 function pinMatches(pin, record) {
     if (!record || !record.pinSalt || !record.pinHash || typeof pin !== 'string') return false;
     const actual = crypto.scryptSync(pin, record.pinSalt, 64);
@@ -58,9 +107,15 @@ function safeEqualText(a, b) {
 }
 function validPin(pin) { return typeof pin === 'string' && /^[0-9A-Za-z]{8,32}$/.test(pin); }
 function getSession(req) {
-    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-session-token'];
+    const authorization = typeof req.headers.authorization === 'string' ? req.headers.authorization : '';
+    const token = authorization.replace(/^Bearer\\s+/i, '') || req.headers['x-session-token'];
     const session = token && sessions.get(token);
-    if (!session || session.expires < Date.now()) { if (token) sessions.delete(token); return null; }
+    const now = Date.now();
+    if (!session || session.expires <= now || now - session.lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
+        if (token) sessions.delete(token);
+        return null;
+    }
+    session.lastSeenAt = now;
     return session;
 }
 function requireAuth(req, res, next) {
@@ -156,7 +211,10 @@ const writeDosaDatabase = async (data) => {
 };
 async function initializeStorage() {
     if (!process.env.DATABASE_URL) {
-        console.warn('DATABASE_URL is not set. PostgreSQL migration is waiting for the Render database connection string; JSON fallback remains active.');
+        if (process.env.NODE_ENV === 'production' || process.env.RENDER === 'true') {
+            throw new Error('DATABASE_URL is required in production. Refusing to start with JSON-file fallback storage.');
+        }
+        console.warn('DATABASE_URL is not set. Running JSON-file storage only in non-production mode.');
         return;
     }
     pgPool = new Pool({
@@ -206,14 +264,51 @@ async function initializeStorage() {
     console.log('DHS PostgreSQL ready: ' + studentsCache.length + ' students, ' + staffCache.length + ' staff, ' + dosaCache.length + ' DOSA records loaded.');
 }
 
+function studentPortalView(student) {
+    // Student/parent accounts receive only the learner's own academic and invoice data.
+    // Never serialize guardian contact details, authentication hashes, or unrelated fields.
+    return {
+        id: student.id,
+        name: student.name,
+        schoolId: student.schoolId,
+        class: student.class || '',
+        marks: student.marks && typeof student.marks === 'object' ? student.marks : {},
+        invoice: student.invoice && typeof student.invoice === 'object' ? student.invoice : null,
+        fees: Array.isArray(student.fees) ? student.fees : [],
+        feeCurrency: student.feeCurrency || 'USD',
+        amountPaid: Number.isFinite(Number(student.amountPaid)) ? Number(student.amountPaid) : 0
+    };
+}
+
+function studentOwnedBySession(student, user) {
+    // Current DHS family credentials are per-student credentials: a Parent/Student
+    // session is bound to exactly one registered DHS ID, never to the whole school.
+    return !!student && !!user && ['Parent', 'Student'].includes(user.role) &&
+        String(student.schoolId || '').trim().toUpperCase() === String(user.schoolId || '').trim().toUpperCase();
+}
+
 function emitStudentLedger(records) {
     const safeRecords = records.map(({ pinSalt, pinHash, ...student }) => student);
     for (const client of io.sockets.sockets.values()) {
         const user = client.sessionUser;
         if (!user) continue;
         if (user.role === 'Parent' || user.role === 'Student') {
-            client.emit('ledger_sync_update', safeRecords.filter(s => String(s.schoolId || '').toUpperCase() === String(user.schoolId || '').toUpperCase()));
-        } else if (['Teacher', 'Head/Deputy', 'Developer'].includes(user.role)) {
+            client.emit('ledger_sync_update', safeRecords.filter(s => studentOwnedBySession(s, user)).map(studentPortalView));
+        } else if (user.role === 'Teacher') {
+            const staff = readStaffDatabase().find(item =>
+                item.role === 'Teacher' &&
+                String(item.name || '').trim() === String(user.name || '').trim() &&
+                String(item.email || item.name || '').trim().toLowerCase() === String(user.email || user.name || '').trim().toLowerCase()
+            );
+            const assigned = staff && (staff.assignedClasses || staff.classes || staff.classAssignments);
+            const classes = (Array.isArray(assigned) ? assigned : (typeof assigned === 'string' ? assigned.split(',') : []))
+                .map(value => String(value).trim().toUpperCase()).filter(Boolean);
+            // Teachers receive only their assigned classes, without guardian contact details or PIN material.
+            const teacherView = safeRecords
+                .filter(student => classes.includes(String(student.class || '').trim().toUpperCase()))
+                .map(({ parentEmail, parentPhone, ...student }) => student);
+            client.emit('ledger_sync_update', teacherView);
+        } else if (['Head/Deputy', 'Developer'].includes(user.role)) {
             client.emit('ledger_sync_update', safeRecords);
         }
     }
@@ -225,9 +320,13 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/students', requireAuth, (req, res) => {
+    res.set('Cache-Control', 'no-store, private');
+    res.set('Pragma', 'no-cache');
     const records = readDatabase();
     if (req.sessionUser.role === 'Parent' || req.sessionUser.role === 'Student') {
-        return res.json(records.filter(student => String(student.schoolId || '').toUpperCase() === String(req.sessionUser.schoolId || '').toUpperCase()).map(({ pinSalt, pinHash, ...student }) => student));
+        // Do not return classmates or all records sharing a school context.
+        const ownRecord = records.find(student => studentOwnedBySession(student, req.sessionUser));
+        return res.json(ownRecord ? [studentPortalView(ownRecord)] : []);
     }
     if (req.sessionUser.role === 'DOSA') return res.json([]);
     if (['Teacher', 'Head/Deputy', 'Developer'].includes(req.sessionUser.role)) {
@@ -328,7 +427,7 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
     }
     const student = readDatabase().find(item =>
         String(item.id) === String(req.params.studentId) &&
-        String(item.schoolId || '').toUpperCase() === String(req.sessionUser.schoolId || '').toUpperCase()
+        studentOwnedBySession(item, req.sessionUser)
     );
     if (!student) return res.status(404).json({ success: false, message: 'The linked student record was not found.' });
 
@@ -387,7 +486,9 @@ app.get('/api/parent/students/:studentId/invoice.pdf', requireAuth, (req, res) =
     res.set({
         'Content-Type': 'application/pdf',
         'Content-Disposition': 'attachment; filename="DHS-Invoice-' + safeName + '.pdf"',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store, private',
+        'Pragma': 'no-cache',
+        'X-Content-Type-Options': 'nosniff'
     });
     return res.send(pdf);
 });
@@ -783,36 +884,54 @@ app.post('/api/auth/login', (req, res) => {
     const pin = typeof body.pin === 'string' ? body.pin : '';
     const ip = String(req.ip || req.socket.remoteAddress || 'unknown');
     const now = Date.now();
-    const attempts = (loginAttempts.get(ip) || []).filter(time => now - time < 15 * 60 * 1000);
-    if (attempts.length >= 12) {
+    const rate = loginRateLimit(ip, role, name, now);
+    res.set('Cache-Control', 'no-store');
+    if (rate.limited) {
         res.set('Retry-After', '900');
         return res.status(429).json({ success: false, message: 'Too many sign-in attempts. Wait 15 minutes and try again.' });
     }
-    attempts.push(now); loginAttempts.set(ip, attempts);
-    res.set('Cache-Control', 'no-store');
-    if (!['Student', 'Parent', 'Teacher', 'Head/Deputy', 'DOSA', 'Developer'].includes(role) || !name || name.length > 120 || !validPin(pin)) {
+    if (!['Student', 'Parent', 'Teacher', 'Head/Deputy', 'DOSA', 'Developer'].includes(role) ||
+        !name || name.length > 120 || !validPin(pin) || schoolId.length > 60) {
+        recordLoginFailure(rate, now);
         return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
     }
+
     let identity = null;
     if (role === 'Student' || role === 'Parent') {
-        const student = readDatabase().find(item => String(item.schoolId || '').toUpperCase() === schoolId.toUpperCase() && String(item.name || '').trim() === name && pinMatches(pin, item));
+        const student = readDatabase().find(item =>
+            String(item.schoolId || '').toUpperCase() === schoolId.toUpperCase() &&
+            String(item.name || '').trim() === name && pinMatches(pin, item)
+        );
         if (student) identity = { name: student.name, email: student.schoolId, schoolId: student.schoolId, role };
     } else if (role === 'Teacher' || role === 'Head/Deputy') {
-        const staff = readStaffDatabase().find(item => String(item.name || '').trim() === name && item.role === role && pinMatches(pin, item));
+        const staff = readStaffDatabase().find(item =>
+            String(item.name || '').trim() === name && item.role === role && pinMatches(pin, item)
+        );
         if (staff) identity = { name: staff.name, email: staff.email || staff.name, role: staff.role };
     } else if (role === 'Developer') {
         const configuredName = String(process.env.DHS_DEVELOPER_NAME || '').trim();
         const configuredPin = String(process.env.DHS_DEVELOPER_PIN || '');
-        if (configuredName && configuredPin && name === configuredName && safeEqualText(pin, configuredPin)) identity = { name: configuredName, email: 'developer:' + configuredName, role: 'Developer' };
+        // Fail closed until a strong, private developer PIN is configured.
+        if (configuredName && configuredPin.length >= 16 && name === configuredName &&
+            safeEqualText(pin, configuredPin)) {
+            identity = { name: configuredName, email: 'developer:' + configuredName, role: 'Developer' };
+        }
     } else if (role === 'DOSA') {
-        const members = readDosaDatabase();
-        const member = members.find(item => String(item.name || item.dosaName || '').trim() === name && pinMatches(pin, item));
+        const member = readDosaDatabase().find(item =>
+            String(item.name || item.dosaName || '').trim() === name && pinMatches(pin, item)
+        );
         if (member) identity = { name, email: member.email || name, role: 'DOSA', dosaName: name };
     }
-    if (!identity) return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
-    loginAttempts.delete(ip);
+
+    if (!identity) {
+        recordLoginFailure(rate, now);
+        return res.status(401).json({ success: false, message: 'The supplied sign-in details are not valid.' });
+    }
     const token = createSession(identity);
-    return res.json({ success: true, name: identity.name, email: identity.email, role: identity.role, schoolId: identity.schoolId || '', dosaName: identity.dosaName || '', token });
+    return res.json({
+        success: true, name: identity.name, email: identity.email, role: identity.role,
+        schoolId: identity.schoolId || '', dosaName: identity.dosaName || '', token
+    });
 });
 
 app.post('/api/developer/student-pin', requireAuth, requireDeveloper, async (req, res) => {
@@ -885,7 +1004,11 @@ app.post('/api/developer/add-staff', requireAuth, requireDeveloper, async (req, 
     const targetStaff = { id: Date.now(), name: name.trim(), email: email.trim().toLowerCase(), role, ...hashPin(String(pin)) };
     faculty.push(targetStaff);
     await writeStaffDatabase(faculty);
-    io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+    for (const client of io.sockets.sockets.values()) {
+        if (client.sessionUser && client.sessionUser.role === 'Developer') {
+            client.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+        }
+    }
     const { pinSalt, pinHash, ...safeStaff } = targetStaff;
     res.json({ success: true, staff: safeStaff });
 });
@@ -895,37 +1018,133 @@ app.post('/api/developer/add-staff', requireAuth, requireDeveloper, async (req, 
 io.use((socket, next) => {
     const token = socket.handshake.auth && socket.handshake.auth.token;
     const session = token && sessions.get(token);
-    if (!session || session.expires < Date.now()) return next(new Error('Unauthorized'));
+    const now = Date.now();
+    if (!session || session.expires <= now || now - session.lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
+        if (token) sessions.delete(token);
+        return next(new Error('Unauthorized'));
+    }
+    const origin = socket.handshake.headers.origin;
+    if (origin) {
+        let sameOrigin = false;
+        try {
+            sameOrigin = new URL(origin).host === String(socket.handshake.headers.host || '');
+        } catch (_) { sameOrigin = false; }
+        if (allowedSocketOrigins.length ? !allowedSocketOrigins.includes(origin) : !sameOrigin) {
+            return next(new Error('Origin not allowed'));
+        }
+    }
+    const active = socketsPerSession.get(token) || 0;
+    if (active >= MAX_SOCKETS_PER_SESSION) return next(new Error('Connection limit reached'));
+    session.lastSeenAt = now;
+    socket.sessionToken = token;
     socket.sessionUser = session;
     next();
 });
 
 io.on('connection', (socket) => {
+    const token = socket.sessionToken;
+    socketsPerSession.set(token, (socketsPerSession.get(token) || 0) + 1);
+    // Re-check session validity on every incoming WebSocket event.
+    socket.use((packet, next) => {
+        const session = sessions.get(socket.sessionToken);
+        const now = Date.now();
+        if (!session || session.expires <= now || now - session.lastSeenAt > SESSION_IDLE_TIMEOUT_MS) {
+            sessions.delete(socket.sessionToken);
+            socket.disconnect(true);
+            return next(new Error('Session expired. Please sign in again.'));
+        }
+        session.lastSeenAt = now;
+        socket.sessionUser = session;
+        next();
+    });
+
     console.log(`Active node connected down terminal thread reference code ID: ${socket.id}`);
 
     // Track when active DOSA users connect
-    socket.on('register_dosa_session', (payload) => {
+    socket.on('register_dosa_session', () => {
         if (socket.sessionUser.role !== 'DOSA') return;
         activeDosaSessions[socket.id] = {
             socketId: socket.id,
-            email: payload.email,
-            dosaName: payload.dosaName || "Daramombe Alumni Association Node",
+            email: socket.sessionUser.email,
+            dosaName: socket.sessionUser.dosaName || socket.sessionUser.name || "Daramombe Alumni Association Node",
             loginTime: new Date().toLocaleTimeString()
         };
-        io.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+        for (const client of io.sockets.sockets.values()) {
+            if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                client.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+            }
+        }
     });
 
-    // Student Mark Modifying Transaction Block
-    socket.on('update_student_marks', async (payload) => {
-        if (!['Teacher', 'Head/Deputy', 'Developer'].includes(socket.sessionUser.role)) return;
-        const { id, marks } = payload;
-        let ledger = readDatabase();
-        let entityIndex = ledger.findIndex(s => s.id === id);
+    // Student marks can only be changed by authorized roles and within their scope.
+    socket.on('update_student_marks', async (payload, acknowledge) => {
+        const reply = (result) => {
+            if (typeof acknowledge === 'function') acknowledge(result);
+        };
+        try {
+            const user = socket.sessionUser;
+            if (!user || !['Teacher', 'Head/Deputy', 'Developer'].includes(user.role)) {
+                return reply({ success: false, message: 'You are not authorized to edit student marks.' });
+            }
+            if (!payload || (typeof payload.id !== 'string' && typeof payload.id !== 'number') ||
+                !payload.marks || typeof payload.marks !== 'object' || Array.isArray(payload.marks)) {
+                return reply({ success: false, message: 'Invalid mark update request.' });
+            }
 
-        if (entityIndex !== -1) {
-            ledger[entityIndex].marks = marks;
+            const ledger = readDatabase();
+            const entityIndex = ledger.findIndex(s => String(s.id) === String(payload.id));
+            if (entityIndex === -1) return reply({ success: false, message: 'Student record not found.' });
+            const student = ledger[entityIndex];
+            const currentMarks = student.marks && typeof student.marks === 'object' && !Array.isArray(student.marks)
+                ? student.marks : {};
+
+            // Teachers must have explicit class and subject assignments on their staff record.
+            if (user.role === 'Teacher') {
+                const staff = readStaffDatabase().find(item =>
+                    item.role === 'Teacher' &&
+                    String(item.name || '').trim() === String(user.name || '').trim() &&
+                    String(item.email || item.name || '').trim().toLowerCase() === String(user.email || user.name || '').trim().toLowerCase()
+                );
+                if (!staff) return reply({ success: false, message: 'Your teacher account could not be verified.' });
+
+                const classAssignments = staff.assignedClasses || staff.classes || staff.classAssignments;
+                const subjectAssignments = staff.assignedSubjects || staff.subjects || staff.subjectAssignments;
+                const asList = value => Array.isArray(value) ? value : (typeof value === 'string' ? value.split(',').map(v => v.trim()).filter(Boolean) : []);
+                const classes = asList(classAssignments).map(v => String(v).trim().toUpperCase());
+                const subjects = asList(subjectAssignments).map(v => String(v).trim().toUpperCase());
+                if (!classes.length || !subjects.length ||
+                    !classes.includes(String(student.class || '').trim().toUpperCase())) {
+                    return reply({ success: false, message: 'You are not assigned to this student’s class.' });
+                }
+                const submittedSubjects = Object.keys(payload.marks);
+                if (submittedSubjects.some(subject => !subjects.includes(subject.trim().toUpperCase()))) {
+                    return reply({ success: false, message: 'You are not assigned to edit one or more submitted subjects.' });
+                }
+            }
+
+            const currentSubjects = Object.keys(currentMarks);
+            const submittedSubjects = Object.keys(payload.marks);
+            if (!currentSubjects.length || submittedSubjects.length !== currentSubjects.length ||
+                currentSubjects.some(subject => !Object.prototype.hasOwnProperty.call(payload.marks, subject)) ||
+                submittedSubjects.some(subject => !Object.prototype.hasOwnProperty.call(currentMarks, subject))) {
+                return reply({ success: false, message: 'Marks must contain exactly the student’s existing subjects.' });
+            }
+            const validatedMarks = {};
+            for (const subject of currentSubjects) {
+                const value = payload.marks[subject];
+                if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 100) {
+                    return reply({ success: false, message: 'Each mark must be a whole number from 0 to 100.' });
+                }
+                validatedMarks[subject] = value;
+            }
+
+            student.marks = validatedMarks;
             await writeDatabase(ledger);
-            emitStudentLedger(ledger); // Push role-filtered updates to connected clients
+            emitStudentLedger(ledger);
+            return reply({ success: true, message: 'Student marks saved successfully.' });
+        } catch (error) {
+            console.error('Student mark update failed:', error && error.message ? error.message : 'Unknown error');
+            return reply({ success: false, message: 'Marks could not be saved. Please try again.' });
         }
     });
 
@@ -950,7 +1169,11 @@ io.on('connection', (socket) => {
         faculty = faculty.filter(f => f.id !== id);
         await writeStaffDatabase(faculty);
         
-        io.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+        for (const client of io.sockets.sockets.values()) {
+            if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                client.emit('staff_sync_update', faculty.map(({ pinSalt, pinHash, ...staff }) => staff));
+            }
+        }
         if (targetStaff) {
             io.emit('forced_disconnect_target', { type: 'Staff', targetEmail: targetStaff.email });
         }
@@ -958,13 +1181,17 @@ io.on('connection', (socket) => {
 
     // Developer drops tracked live DOSA sockets
     socket.on('developer_disconnect_dosa', (targetSocketId) => {
-        if (socket.sessionUser.role !== 'Developer') return;
+        if (socket.sessionUser.role !== 'Developer' || typeof targetSocketId !== 'string') return;
         if (io.sockets.sockets.get(targetSocketId)) {
             io.to(targetSocketId).emit('forced_dosa_kick');
-            io.sockets.sockets.get(targetSocketId).disconnect();
+            io.sockets.sockets.get(targetSocketId).disconnect(true);
         }
         delete activeDosaSessions[targetSocketId];
-        io.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+        for (const client of io.sockets.sockets.values()) {
+            if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                client.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+            }
+        }
     });
 
     // Messaging Engine Cluster
@@ -985,8 +1212,15 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         if (activeDosaSessions[socket.id]) {
             delete activeDosaSessions[socket.id];
-            io.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+            for (const client of io.sockets.sockets.values()) {
+                if (client.sessionUser && client.sessionUser.role === 'Developer') {
+                    client.emit('dosa_tracker_sync', Object.values(activeDosaSessions));
+                }
+            }
         }
+        const token = socket.sessionToken;
+        const remaining = Math.max(0, (socketsPerSession.get(token) || 1) - 1);
+        if (remaining) socketsPerSession.set(token, remaining); else socketsPerSession.delete(token);
         console.log(`Node mapping dropped pipeline channels for trace link: ${socket.id}`);
     });
 });
@@ -996,7 +1230,6 @@ initializeStorage().then(() => {
         console.log(`=======================================================`);
         console.log(`  DARAMOMBE HIGH SCHOOL PORTAL INITIALIZED ON PORT [${PORT}]`);
         console.log(`  Running Architecture Profile Mode 2026`);
-        if (!SESSION_SECRET) console.warn('WARNING: SESSION_SECRET is unset. Configure a long random secret in the deployment environment.');
         console.log(`=======================================================`);
     });
 }).catch(error => {
