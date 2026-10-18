@@ -250,6 +250,100 @@
         #auth-card > .text-center, #login-form { padding-left:18px; padding-right:18px; }
       }
 
+    
+      /* DHS professional dashboard system: consistent surfaces, spacing, hierarchy and responsive tables. */
+      #main-interface {
+        --dash-radius:18px;
+        --dash-line:var(--dhs-border,#dbe3ee);
+        --dash-surface:var(--dhs-panel,#fff);
+        --dash-soft:var(--dhs-panel-deep,#f1f5f9);
+        --dash-text:var(--dhs-ink,#172033);
+        --dash-muted:var(--dhs-muted,#64748b);
+        width:100%!important; max-width:1440px!important; margin:24px auto 40px!important;
+        color:var(--dash-text); gap:24px!important;
+      }
+      #main-interface > :first-child {
+        position:relative; overflow:hidden; align-items:center!important; padding:22px 26px!important;
+        border:1px solid var(--dash-line)!important; border-radius:var(--dash-radius)!important;
+        background:var(--dash-surface)!important; box-shadow:0 10px 34px rgba(15,23,42,.07)!important;
+      }
+      #main-interface > :first-child::before {
+        content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:var(--dhs-accent,#c58a25);
+      }
+      #main-interface > :first-child h2 { color:var(--dash-text)!important; font-size:clamp(15px,2vw,20px)!important; letter-spacing:-.025em!important; }
+      #main-interface > :first-child p { margin-top:7px; font-family:inherit!important; letter-spacing:.01em; color:var(--dash-muted)!important; }
+      #main-interface > :first-child > div:last-child { flex-wrap:wrap; }
+      #main-interface > :first-child > div:last-child > div { background:var(--dash-soft)!important; border:1px solid var(--dash-line)!important; border-radius:12px!important; padding:10px 14px!important; }
+      #main-interface > .grid { align-items:start; gap:24px!important; }
+      #main-interface [id^="panel-"], #main-interface #head-invoice-editor,
+      #main-interface #panel-developer > div {
+        border:1px solid var(--dash-line)!important; border-radius:var(--dash-radius)!important;
+        background:var(--dash-surface)!important; padding:24px!important;
+        box-shadow:0 8px 26px rgba(15,23,42,.045)!important;
+      }
+      #main-interface [id^="panel-"] h3, #main-interface #head-invoice-editor h4 {
+        color:var(--dhs-accent-strong,#a16207)!important; font-size:13px!important; letter-spacing:.08em!important;
+        line-height:1.5; padding-bottom:14px!important; border-color:var(--dash-line)!important;
+      }
+      #main-interface #panel-developer { gap:22px!important; }
+      #main-interface #panel-developer > div { margin:0; }
+      #main-interface #panel-developer form, #main-interface #panel-developer .bg-slate-950,
+      #main-interface #head-invoice-editor form {
+        border:1px solid var(--dash-line)!important; border-radius:13px!important;
+        background:var(--dash-soft)!important; padding:16px!important;
+      }
+      #main-interface input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+      #main-interface select, #main-interface textarea {
+        min-height:42px; border:1px solid var(--dash-line)!important; border-radius:10px!important;
+        background:var(--dash-surface)!important; color:var(--dash-text)!important; padding:10px 12px!important;
+        font:inherit; font-size:13px!important; max-width:100%;
+      }
+      #main-interface input:focus, #main-interface select:focus, #main-interface textarea:focus {
+        outline:none; border-color:var(--dhs-accent-strong,#c58a25)!important;
+        box-shadow:0 0 0 3px color-mix(in srgb, var(--dhs-accent-strong,#c58a25) 18%, transparent)!important;
+      }
+      #main-interface button {
+        border-radius:10px!important; min-height:38px; font-weight:750; letter-spacing:.01em;
+      }
+      #main-interface table { min-width:650px; border-collapse:separate; border-spacing:0; color:var(--dash-text); }
+      #main-interface table thead { background:var(--dash-soft); }
+      #main-interface table th {
+        padding:13px 12px!important; color:var(--dash-muted)!important; font:700 10px/1.5 system-ui,sans-serif!important;
+        letter-spacing:.075em; text-transform:uppercase; white-space:nowrap;
+      }
+      #main-interface table td { padding:12px!important; border-bottom:1px solid var(--dash-line); vertical-align:middle; }
+      #main-interface table tbody tr:hover { background:color-mix(in srgb, var(--dash-soft) 70%, transparent); }
+      #main-interface .overflow-x-auto { border:1px solid var(--dash-line); border-radius:12px; }
+      #main-interface #parent-report-card-render > *,
+      #main-interface #dev-student-pdf-results > *,
+      #main-interface #dev-dosa-tracker-rows > * {
+        border-radius:12px;
+      }
+      #main-interface .text-slate-400, #main-interface .text-slate-500,
+      #main-interface .text-gray-500 { color:var(--dash-muted)!important; }
+      #main-interface .border-slate-800, #main-interface .border-slate-700,
+      #main-interface .border-slate-600 { border-color:var(--dash-line)!important; }
+      #main-interface .bg-slate-950, #main-interface .bg-slate-900,
+      #main-interface .bg-slate-800 { background-color:var(--dash-soft)!important; }
+      #main-interface .text-slate-100, #main-interface .text-slate-200,
+      #main-interface .text-slate-300 { color:var(--dash-text)!important; }
+      #main-interface .shadow-xl, #main-interface .shadow-lg { box-shadow:none!important; }
+      #main-interface #head-invoice-editor { margin-top:20px; }
+      #main-interface #head-invoice-editor label { display:block; color:var(--dash-muted)!important; line-height:1.6; }
+      #main-interface #head-invoice-total-preview { color:var(--dhs-accent-strong,#a16207)!important; }
+      @media(max-width:760px) {
+        #main-interface { margin-top:16px!important; gap:16px!important; padding:0!important; }
+        #main-interface > :first-child { padding:18px!important; align-items:stretch!important; }
+        #main-interface > :first-child > div:last-child { width:100%; justify-content:space-between; }
+        #main-interface [id^="panel-"], #main-interface #head-invoice-editor,
+        #main-interface #panel-developer > div { padding:17px!important; border-radius:14px!important; }
+        #main-interface > .grid { gap:16px!important; }
+        #main-interface table { min-width:600px; }
+      }
+      @media(prefers-reduced-motion:reduce) {
+        #main-interface *, #main-interface *::before, #main-interface *::after { scroll-behavior:auto!important; }
+      }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
