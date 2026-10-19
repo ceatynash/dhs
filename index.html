@@ -250,6 +250,83 @@
         #auth-card > .text-center, #login-form { padding-left:18px; padding-right:18px; }
       }
 
+    
+      /* Unified professional portal system */
+      :root {
+        --dhs-accent:#126e75; --dhs-accent-strong:#0f8288; --dhs-page:#f3f6fa;
+        --dhs-panel:#ffffff; --dhs-panel-deep:#f7f9fc; --dhs-ink:#172b4d; --dhs-muted:#5d6b82;
+        --dhs-border:#dbe3ed;
+      }
+      html[data-theme] { color-scheme:light; }
+      html[data-theme] body { background:#f3f6fa!important; color:#24344d!important; }
+      html[data-theme] body:has(#auth-card:not(.hidden)) {
+        background-color:#f3f6fa!important;
+        background-image:radial-gradient(ellipse at 14% 12%,rgba(18,110,117,.10),transparent 34%),
+          radial-gradient(ellipse at 88% 78%,rgba(25,67,112,.08),transparent 38%)!important;
+        background-attachment:scroll!important;
+      }
+      html[data-theme] body:has(#auth-card:not(.hidden))::before { display:none!important; }
+      #dhs-theme-toggle, #dhs-theme-picker { display:none!important; }
+      html[data-theme] #auth-card {
+        margin:2rem auto!important; border:1px solid #dbe3ed!important; border-radius:22px!important;
+        background:#fff!important; box-shadow:0 24px 70px rgba(23,43,77,.13)!important;
+      }
+      #auth-card::before {
+        background:radial-gradient(circle at 80% 20%,rgba(95,193,188,.28),transparent 28%),
+          linear-gradient(145deg,#102d49 0%,#16445d 56%,#126e75 100%)!important;
+        border-right:0!important;
+      }
+      #auth-card h1 { color:#172b4d!important; }
+      #login-form input:focus, #login-form select:focus {
+        border-color:#16818a!important; box-shadow:0 0 0 4px rgba(18,110,117,.14)!important;
+      }
+      #login-form #auth-submit { background:#126e75!important; box-shadow:0 8px 18px rgba(18,110,117,.18)!important; }
+      #login-form #auth-submit:hover { background:#0d5d64!important; }
+      html[data-theme] #main-interface { color:#24344d; }
+      html[data-theme] #main-interface .bg-slate-950,
+      html[data-theme] #main-interface .bg-slate-900,
+      html[data-theme] #main-interface .bg-slate-800,
+      html[data-theme] #main-interface .bg-slate-700 { background-color:#fff!important; }
+      html[data-theme] #main-interface .text-slate-100,
+      html[data-theme] #main-interface .text-slate-200,
+      html[data-theme] #main-interface .text-slate-300 { color:#24344d!important; }
+      html[data-theme] #main-interface .text-slate-400,
+      html[data-theme] #main-interface .text-slate-500 { color:#66758b!important; }
+      html[data-theme] #main-interface .border-slate-800,
+      html[data-theme] #main-interface .border-slate-700,
+      html[data-theme] #main-interface .border-slate-600 { border-color:#dbe3ed!important; }
+      html[data-theme] #main-interface .divide-slate-800\/50 > :not([hidden]) ~ :not([hidden]),
+      html[data-theme] #main-interface .divide-slate-800 > :not([hidden]) ~ :not([hidden]) { border-color:#e8edf3!important; }
+      html[data-theme] #main-interface [class*="shadow"] { --tw-shadow-color:rgba(23,43,77,.08)!important; }
+      html[data-theme] #main-interface .bg-amber-500,
+      html[data-theme] #main-interface .bg-amber-600,
+      html[data-theme] #main-interface .bg-emerald-500,
+      html[data-theme] #main-interface .bg-emerald-600 { background-color:#126e75!important; color:#fff!important; }
+      html[data-theme] #main-interface .hover\\:bg-amber-400:hover,
+      html[data-theme] #main-interface .hover\\:bg-amber-500:hover,
+      html[data-theme] #main-interface .hover\\:bg-emerald-400:hover { background-color:#0d5d64!important; }
+      html[data-theme] #main-interface .text-amber-300,
+      html[data-theme] #main-interface .text-amber-400,
+      html[data-theme] #main-interface .text-amber-500 { color:#126e75!important; }
+      html[data-theme] #main-interface .bg-rose-950 { background:#fff1f2!important; }
+      html[data-theme] #main-interface .text-rose-200 { color:#9f1239!important; }
+      html[data-theme] #main-interface input:not([type="checkbox"]):not([type="radio"]),
+      html[data-theme] #main-interface select, html[data-theme] #main-interface textarea {
+        background:#fff!important; color:#24344d!important; border-color:#cbd5e1!important;
+      }
+      html[data-theme] #main-interface input::placeholder,
+      html[data-theme] #main-interface textarea::placeholder { color:#8492a6!important; }
+      #dhs-ai-toggle { background:#126e75!important; border-color:#126e75!important; color:#fff!important; box-shadow:0 10px 28px rgba(18,110,117,.24)!important; }
+      #dhs-ai-window { background:#fff!important; border-color:#dbe3ed!important; box-shadow:0 24px 64px rgba(23,43,77,.2)!important; }
+      #dhs-ai-header, #dhs-ai-form { background:#f7f9fc!important; border-color:#e2e8f0!important; color:#172b4d!important; }
+      #dhs-ai-message, .dhs-ai-message.assistant { background:#f1f5f9!important; border-color:#dbe3ed!important; color:#24344d!important; }
+      .dhs-ai-message.user, #dhs-ai-send { background:#126e75!important; color:#fff!important; }
+      #dhs-ai-input { background:#fff!important; color:#24344d!important; border-color:#cbd5e1!important; }
+      @media(max-width:760px) {
+        #auth-card { margin:4.25rem auto 1rem!important; }
+        #auth-card::before { min-height:170px!important; }
+      }
+
     </style>
 </head>
 <body class="bg-slate-950 min-h-screen text-slate-100 flex flex-col items-center justify-start p-3 md:p-6">
